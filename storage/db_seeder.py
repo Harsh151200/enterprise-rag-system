@@ -37,6 +37,7 @@ def seed_vector_database():
 
         # 3. Enable pgvector extension inside the Postgres Engine
         cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        conn.commit()
 
         # 4. Create the schema table to house our structural semantic entries
         cursor.execute("DROP TABLE IF EXISTS sklearn_docs;")
