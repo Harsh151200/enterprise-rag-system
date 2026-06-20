@@ -92,5 +92,5 @@ def semantic_search(query_text, top_k=3):
 
 if __name__ == "__main__":
     # Test query to run our retrieval engine live!
-    sample_prompt = "What are Machine Learning regression models ?"
+    sample_prompt = input("Enter a search query to find relevant sklearn documentation: ")
     semantic_search(sample_prompt, top_k=3)
