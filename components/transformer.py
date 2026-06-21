@@ -29,7 +29,6 @@ def chunk_documentation():
         length_function=len,
         is_separator_regex=False,
     )
-    chunks = text_splitter.split_text(raw_text)
 
     # 3. Execute the splitting algorithm
     print("Executing semantic text splitting...")
