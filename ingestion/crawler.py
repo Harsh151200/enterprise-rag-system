@@ -1,56 +1,110 @@
 import os
+import time
 import requests
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
-# to load environment variables from a .env file
-load_dotenv()
+class DynamicDocumentationCrawler:
+    def __init__(self, seed_url, domain_lock, path_filter, max_pages=50):
+        """
+        An enterprise-grade recursive crawler built to map and ingest documentation trees.
+        
+        :param seed_url: The entry point or root node of the documentation map.
+        :param domain_lock: Safety rail ensuring the scraper never leaves the target host.
+        :param path_filter: Ensures we only ingest valid documentation sub-pages.
+        :param max_pages: Safe boundary limit to prevent infinite loops and control storage footprint.
+        """
+        self.seed_url = seed_url
+        self.domain_lock = domain_lock
+        self.path_filter = path_filter
+        self.max_pages = max_pages
+        
+        self.visited_urls = set()
+        self.url_queue = [seed_url]
+        self.headers = {"User-Agent": "Mozilla/5.0 (EnterpriseRAGBot/2.0; ScaleUp-Ops)"}
+        self.sandbox_dir = os.getenv("RAW_DATA_DIR", "data_sandbox/")
+        self.raw_data_dir = os.path.join(self.sandbox_dir, 'raw/', 'scikit_learn/')
 
-def fetch_and_parse_documentation():
-    # Fetch url and configuration from environment variables
-    target_url = os.getenv('TARGET_DOCS_URL')
-    output_dir = os.getenv('RAW_DATA_DIR', 'data_sandbox/')
+    def clean_url(self, url):
+        """Strips fragment identifiers (#) to prevent duplicate processing of the same page."""
+        return url.split('#')[0]
 
-    print(f"Initializing connection to {target_url} ...")
+    def generate_filename_from_url(self, url):
+        """Transforms a URL path into a clean local file identifier slug."""
+        parsed = urlparse(url)
+        path_slug = parsed.path.strip("/").replace("/", "_")
+        if not path_slug or path_slug.endswith("_"):
+            path_slug += "index"
+        if not path_slug.endswith(".txt"):
+            path_slug = path_slug.replace(".html", "") + ".txt"
+        return f"dynamic_{path_slug}"
 
-    # Adding a standard User-Agent header to make request looks like a normal browser access
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    def run_crawler(self):
+        os.makedirs(self.raw_data_dir, exist_ok=True)
+        print(f"Launching Dynamic Tree Crawler...")
+        print(f"Root Node: {self.seed_url}")
+        print(f"Domain Lock: {self.domain_lock} | Scope Matcher: {self.path_filter}")
+        print(f"Bounded Guardrail Capacity: Max {self.max_pages} pages.\n" + "="*60)
 
-    try : 
-        response = requests.get(target_url, headers=headers,timeout=10)
-        response.raise_for_status() # to check if the request was successful
+        while self.url_queue and len(self.visited_urls) < self.max_pages:
+            current_url = self.clean_url(self.url_queue.pop(0))
 
-        # Parse raw HTML text stream with the high-performance 'lxml' engine
-        soup = BeautifulSoup(response.text, 'lxml')
+            if current_url in self.visited_urls:
+                continue
 
-        # Extract Main text content from the parsed HTML document.
-        # scikit-learn documentation has main structure inside <article> tag with class="bd-article"
-        main_content = soup.find('article', class_='bd-article')
+            print(f"[{len(self.visited_urls) + 1}/{self.max_pages}] Processing: {current_url}")
+            self.visited_urls.add(current_url)
 
-        if not main_content:
-            # Fallback to standard html 'main' or 'article' tags if class structure shifts
-            main_content = soup.find('main') or soup.find('article')
+            try:
+                response = requests.get(current_url, headers=self.headers, timeout=10)
+                if response.status_code != 200:
+                    continue
 
-        if main_content:
-            # Extract purely readable text string, removing residual script/style brackets
-            clean_text = main_content.get_text(separator='\n', strip=True)
+                soup = BeautifulSoup(response.text, "lxml")
 
-            # Save the cleaned text to a local file for later processing
-            filename = "sklearn_user_guide.txt"
-            output_path = os.path.join(output_dir, filename)
+                # --- 1. CONTEXT EXTRACTION LAYER ---
+                article_body = soup.find("article", class_="bd-article")
+                text_content = article_body.get_text(separator="\n") if article_body else soup.get_text(separator="\n")
+                
+                clean_lines = [line.strip() for line in text_content.splitlines() if line.strip()]
+                final_text = "\n".join(clean_lines)
 
-            # save data to data_sandboc/
-            with open(output_path, 'w', encoding = 'utf-8') as f :
-                f.write(clean_text)
+                # Commit text segment to the file sandbox
+                filename = self.generate_filename_from_url(current_url)
+                file_path = os.path.join(self.raw_data_dir, filename)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(final_text)
 
-            print(f"Documentation successfully fetched and saved to {output_path}")
-        else:
-            print("Failed to locate main content in the documentation page.")
+                # --- 2. DYNAMIC LINK DISCOVERY LAYER (The Tree Graph Parser) ---
+                for anchor in soup.find_all("a", href=True):
+                    absolute_link = urljoin(current_url, anchor["href"])
+                    clean_link = self.clean_url(absolute_link)
 
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while fetching the documentation: {e}")
+                    # Guardrail Checkpoints
+                    is_same_domain = urlparse(clean_link).netloc == self.domain_lock
+                    in_target_scope = self.path_filter in clean_link
+                    is_new_url = clean_link not in self.visited_urls and clean_link not in self.url_queue
+
+                    if is_same_domain and in_target_scope and is_new_url:
+                        self.url_queue.append(clean_link)
+
+                # Polite scraping pause to protect target network routers
+                time.sleep(0.8)
+
+            except Exception as e:
+                print(f"Error processing {current_url}: {e}")
+
+        print(f"\nDynamic Crawling Complete! Successfully mapped and harvested {len(self.visited_urls)} documentation sub-nodes.")
 
 if __name__ == "__main__":
-    fetch_and_parse_documentation()
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    # Configuring the engine to crawl scikit-learn's stable User Guide tree hierarchy dynamically
+    crawler = DynamicDocumentationCrawler(
+        seed_url="https://scikit-learn.org/stable/user_guide.html",
+        domain_lock="scikit-learn.org",
+        path_filter="/stable/", # Targets everything in the stable documentation tree bounds
+        max_pages=50            # Start with a safe pool boundary for initial scale testing
+    )
+    crawler.run_crawler()
