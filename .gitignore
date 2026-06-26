@@ -2,6 +2,8 @@ venv/
 __pycache__/
 *.pyc
 .env
+.env.production
+.env*
 data_sandbox/
 .DS_Store
 demo.py
