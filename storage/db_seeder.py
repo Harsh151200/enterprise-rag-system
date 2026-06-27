@@ -39,7 +39,7 @@ def seed_mass_vector_database():
     db_user = os.getenv("DB_USER")
     db_password = os.getenv("DB_PASSWORD")
     
-    print(f"🔌 Initializing connection to Postgres Target Container [{db_host}:{db_port}]...")
+    print(f"Initializing connection to Postgres Target Container [{db_host}:{db_port}]...")
     
     try:
         connection = psycopg2.connect(
@@ -68,7 +68,7 @@ def seed_mass_vector_database():
             VALUES %s;
         """
         
-        print(f"⚡ Bulk-inserting {len(db_records_batch)} vector arrays into the data core...")
+        print(f"Bulk-inserting {len(db_records_batch)} vector arrays into the data core...")
         
         # execute_values executes a single optimized compilation query behind the scenes
         execute_values(
