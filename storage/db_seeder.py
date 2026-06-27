@@ -2,79 +2,99 @@ import os
 import json
 import psycopg2
 from psycopg2.extras import execute_values
-from pgvector.psycopg2 import register_vector
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Check an environmental flag set by your terminal (defaulting to local development)
+app_env = os.getenv("APP_ENV", "development")
 
-def seed_vector_database():
-    #1. Load the json payload genrated in phase 2:transformation and embeddings
-    json_path = os.path.join(os.getenv("RAW_DATA_DIR", "data_sandbox/"), "processed_embeddings.json")
+# Dynamically route the runtime configurations file path
+if app_env == "production":
+    load_dotenv(".env.production")
+    print("[CONFIG]: System successfully bound to PRODUCTION environment.")
+else:
+    load_dotenv(".env")
+    print("[CONFIG]: System successfully bound to LOCAL DEVELOPMENT environment.")
 
-    if not os.path.exists(json_path):
-        print(f"!Error: {json_path} missing. Please execute Phase 2 first.")
+
+def seed_mass_vector_database():
+    sandbox_dir = os.getenv("RAW_DATA_DIR", "data_sandbox/")
+    embeddings_json_path = os.path.join(sandbox_dir, "processed_embeddings.json")
+    
+    # 1. Structural Validation Guardrail
+    if not os.path.exists(embeddings_json_path):
+        print(f"Error: Processed embeddings ledger '{embeddings_json_path}' not found.")
+        return
+        
+    with open(embeddings_json_path, "r", encoding="utf-8") as f:
+        vector_data = json.load(f)
+        
+    if not vector_data:
+        print("Warning: The embeddings file is empty. Nothing to seed.")
         return
 
-    with open(json_path, "r", encoding="utf-8") as f:
-        records = json.load(f)
-
-    # 2. Connect to PostgreSQL database
+    # Extract database credentials
+    db_host = os.getenv("DB_HOST")
+    db_port = os.getenv("DB_PORT")
+    db_name = os.getenv("DB_NAME")
+    db_user = os.getenv("DB_USER")
+    db_password = os.getenv("DB_PASSWORD")
+    
+    print(f"🔌 Initializing connection to Postgres Target Container [{db_host}:{db_port}]...")
+    
     try:
-        conn = psycopg2.connect(
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT"),
-            database=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD")
+        connection = psycopg2.connect(
+            host=db_host,
+            port=db_port,
+            database=db_name,
+            user=db_user,
+            password=db_password
         )
-
-        cursor = conn.cursor()
-
-        # CRITICAL STEP: Register pgvector extension within the psycopg2 connection instance
-        register_vector(conn)
-
-
-        # 3. Enable pgvector extension inside the Postgres Engine
-        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-        conn.commit()
-
-        # 4. Create the schema table to house our structural semantic entries
-        cursor.execute("DROP TABLE IF EXISTS sklearn_docs;")
-        cursor.execute("""
-            CREATE TABLE sklearn_docs (
-                id INT PRIMARY KEY,
-                text_content TEXT NOT NULL,
-                embedding VECTOR(1536) NOT NULL
-            );
-        """)
-
-        conn.commit()
-
-        print("Database schema built. Table 'sklearn_docs' initialized.")
-
-        # 5. Execute highly-optimized batch insertions
-        print(f"Seeding database with {len(records)} records...")
-
-        # Prepare data tuple mapping list
-        insert_data = [(r['id'], r['text_content'], r['embedding']) for r in records]
+        cursor = connection.cursor()
         
-        # execute_values is dramatically faster than looped singular INSERT queries
-        query = "INSERT INTO sklearn_docs (id, text_content, embedding) VALUES %s"
-        execute_values(cursor, query, insert_data)
-
-        print("Database Seeding Complete! All vectors safely indexed inside Postgres.")
+        # 2. Prevent Data Duplication (Wipe old PoC records cleanly)
+        print("Clearing out legacy tracking records from 'sklearn_docs' table...")
+        cursor.execute("TRUNCATE TABLE sklearn_docs;")
         
-        conn.commit()
-
+        # 3. Prepare the Mass Batch Ingestion Payload List
+        # We restructure the JSON items into a flat list of tuples for psycopg2
+        db_records_batch = [
+            (record["id"], record["source_file"], record["text_content"], record["embedding"])
+            for record in vector_data
+        ]
+        
+        # Explicitly cast the incoming float list to a vector type (%s::vector)
+        insert_query = """
+            INSERT INTO sklearn_docs (id, source_file, text_content, embedding)
+            VALUES %s;
+        """
+        
+        print(f"⚡ Bulk-inserting {len(db_records_batch)} vector arrays into the data core...")
+        
+        # execute_values executes a single optimized compilation query behind the scenes
+        execute_values(
+            cursor, 
+            insert_query, 
+            db_records_batch, 
+            template="(%s, %s, %s, %s::vector)"
+        )
+        
+        # Commit transaction to disk
+        connection.commit()
+        
+        print("=" * 60)
+        print(f"Database Seeding Milestone Complete!")
+        print(f"Total Active Rows Injected and Indexed: {len(db_records_batch)}")
+        print("=" * 60)
+        
     except Exception as e:
-        print(f"Database error: {e}")
-
+        print(f"Database Transaction Processing Failure: {e}")
+        if 'connection' in locals():
+            connection.rollback()
     finally:
-        if cursor in locals(): #locals gives us list of local variables
+        if 'cursor' in locals():
             cursor.close()
-        if conn in locals():
-            conn.close()
+        if 'connection' in locals():
+            connection.close()
 
 if __name__ == "__main__":
-    seed_vector_database()
+    seed_mass_vector_database()
