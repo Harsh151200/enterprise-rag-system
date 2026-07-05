@@ -7,3 +7,12 @@ __pycache__/
 data_sandbox/
 .DS_Store
 demo.py
+
+# === TERRAFORM INFRASTRUCTURE EXCLUSIONS ===
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.backup
+infra/*.tfvars
+infra/.terraform.lock.hcl
+
+cloud-sql-proxy.exe

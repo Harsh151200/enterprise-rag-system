@@ -50,10 +50,26 @@ def seed_mass_vector_database():
             password=db_password
         )
         cursor = connection.cursor()
+
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        connection.commit()
+
+        # cursor.execute("DROP TABLE IF EXISTS sklearn_docs;")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sklearn_docs (
+                id INT PRIMARY KEY,
+                text_content TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                embedding VECTOR(1536) NOT NULL
+            );
+        """)
+
+        connection.commit()
         
         # 2. Prevent Data Duplication (Wipe old PoC records cleanly)
         print("Clearing out legacy tracking records from 'sklearn_docs' table...")
         cursor.execute("TRUNCATE TABLE sklearn_docs;")
+        connection.commit()
         
         # 3. Prepare the Mass Batch Ingestion Payload List
         # We restructure the JSON items into a flat list of tuples for psycopg2
