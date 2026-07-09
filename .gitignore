@@ -2,6 +2,18 @@ venv/
 __pycache__/
 *.pyc
 .env
+.env.production
+.env*
 data_sandbox/
 .DS_Store
 demo.py
+terraform_rough*
+
+# === TERRAFORM INFRASTRUCTURE EXCLUSIONS ===
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.backup
+infra/*.tfvars
+infra/.terraform.lock.hcl
+
+cloud-sql-proxy.exe
