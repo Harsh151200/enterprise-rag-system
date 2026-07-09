@@ -1,37 +1,23 @@
 import os
-import random
 import psycopg2
 from pgvector.psycopg2 import register_vector
-from openai import OpenAI
 from dotenv import load_dotenv
+from components.embedding_provider import create_embedding_provider
 
 load_dotenv()
 
 def get_query_embedding(query_text):
     """Converts the user's plain text query into a 1536-dimensional vector."""
-    
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    if api_key:
-        try:
-            client = OpenAI()
-            response = client.embeddings.create(
-                input=query_text,
-                model="text-embedding-3-small"
-            )
-
-            return response.data[0].embedding
-        
-        except Exception as e:
-            print(f"OpenAI API Error: {e}")
-            return None
-    else:
-        print("No API key found. Using mock vector generator for query embedding.")
-
-        # Uses a deterministic hash of the text so searching the same phrase yields the same vector
-        random.seed(int(abs(hash(query_text)) % 1e7))
-
-        return [random.uniform(-1, 1) for _ in range(1536)]
+    try:
+        embedding_provider = create_embedding_provider(
+            model="text-embedding-3-small", dimensions=1536
+        )
+        if not os.getenv("OPENAI_API_KEY"):
+            print("No API key found. Using mock vector generator for query embedding.")
+        return embedding_provider.embed_text(query_text)
+    except Exception as e:
+        print(f"Embedding generation error: {e}")
+        return None
     
 def semantic_search(query_text, top_k=3):
     """Queries Postgres using the pgvector cosine distance operator to find matching context."""
