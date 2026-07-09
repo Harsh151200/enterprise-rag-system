@@ -1,15 +1,14 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-# Import our Phase 4 RAG engine
 from components.orchestrator import generate_rag_response
+from core.config import settings
 
 
 # 1. Initialize the FastAPI Application
 app = FastAPI(
-    title="Enterprise Generative AI Retrieval API",
-    description="Production-grade RAG endpoint serving scikit-learn verified technical documentation.",
-    version="1.0.0"
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION
 )
 
 # 2. Define the expected incoming JSON schema using Pydantic
@@ -21,10 +20,27 @@ class QueryResponse(BaseModel):
     question: str
     answer: str
 
-# 4. Create an operational health-check endpoint (Standard enterprise practice)
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "database_gateway": "online"}
+# # 4. Create an operational health-check endpoint (Standard enterprise practice)
+# @app.get("/health")
+# def health_check():
+#     return {"status": "healthy", "database_gateway": "online"}
+
+
+# =========================================================================
+# MONITORING LAYER: SYSTEM HEALTH & VERSION CONTROL GATE
+# =========================================================================
+@app.get("/health", tags=["Monitoring"])
+async def health_check():
+    """
+    Exposes system vitals and the running SemVer string. 
+    Used by Cloud Run health probes and deployment validation scripts.
+    """
+    return {
+        "status": "HEALTHY",
+        "environment": settings.APP_ENV,
+        "version": settings.APP_VERSION,
+        "embedding_mode": settings.EMBEDDING_MODE
+    }
 
 # 5. Create the primary POST endpoint for RAG queries
 @app.post("/api/v1/query", response_model=QueryResponse)
