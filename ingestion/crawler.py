@@ -105,6 +105,6 @@ if __name__ == "__main__":
         seed_url="https://scikit-learn.org/stable/user_guide.html",
         domain_lock="scikit-learn.org",
         path_filter="/stable/", # Targets everything in the stable documentation tree bounds
-        max_pages=50            # Start with a safe pool boundary for initial scale testing
+        max_pages=1000            # Start with a safe pool boundary for initial scale testing
     )
     crawler.run_crawler()
