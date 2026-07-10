@@ -76,9 +76,9 @@ class PipelineLogger:
             with conn.cursor() as cursor:
                 cursor.execute(query, (extracted, transformed, indexed, datetime.now(timezone.utc), str(error), str(run_id)))
             conn.commit()
-            print(f"❌ [Audit Ledger Logged] Pipeline run {run_id} written to ledger with critical FAILED state marker.")
+            print(f"[Audit Ledger Logged] Pipeline run {run_id} written to ledger with critical FAILED state marker.")
         except Exception as e:
             conn.rollback()
-            print(f"⚠️ Failed to log crash signature trace for run {run_id}: {e}")
+            print(f"Failed to log crash signature trace for run {run_id}: {e}")
         finally:
             conn.close()

@@ -33,12 +33,18 @@ class LocalEmbeddingProvider(BaseEmbeddingProvider):
         print("Initializing Local Embedding Provider [nomic-embed-text-v1.5]...")
         try:
             from sentence_transformers import SentenceTransformer
-            # Nomic-embed-text-v1.5 natively supports adjustable dimensions and defaults to 1536
-            self.model = SentenceTransformer("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
-                "Missing dependencies for LOCAL embedding mode. Please run: pip install sentence-transformers"
-            )
+                "Missing core dependency for LOCAL embedding mode. Please run: pip install sentence-transformers"
+            ) from e
+
+        try:
+            # Nomic-embed-text-v1.5 natively supports adjustable dimensions and defaults to 1536
+            self.model = SentenceTransformer("Orange/orange-nomic-v1.5-1536", trust_remote_code=True)
+        except Exception as e:
+            # This will now print out the exact missing sub-dependency or network error
+            print(f"Critical failure initializing Nomic embedding engine: {e}")
+            raise e
 
     def embed_text(self, text: str) -> List[float]:
         # Prefix required by Nomic model tuning specifications for search tasks
