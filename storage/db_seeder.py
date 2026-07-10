@@ -1,116 +1,65 @@
 import os
 import json
 import psycopg2
-from psycopg2.extras import execute_values
-from dotenv import load_dotenv
+from core.config import settings
 
-# Check an environmental flag set by your terminal (defaulting to local development)
-app_env = os.getenv("APP_ENV", "development")
-
-# Dynamically route the runtime configurations file path
-if app_env == "production":
-    load_dotenv(".env.production")
-    print("[CONFIG]: System successfully bound to PRODUCTION environment.")
-else:
-    load_dotenv(".env")
-    print("[CONFIG]: System successfully bound to LOCAL DEVELOPMENT environment.")
-
-
-def seed_mass_vector_database():
+def seed_database():
+    print("Starting Database Seeding Service...")
+    
+    # 1. Resolve local sandbox paths
     sandbox_dir = os.getenv("RAW_DATA_DIR", "data_sandbox/")
-    embeddings_json_path = os.path.join(sandbox_dir, "processed_embeddings.json")
-    
-    # 1. Structural Validation Guardrail
-    if not os.path.exists(embeddings_json_path):
-        print(f"Error: Processed embeddings ledger '{embeddings_json_path}' not found.")
-        return
-        
-    with open(embeddings_json_path, "r", encoding="utf-8") as f:
-        vector_data = json.load(f)
-        
-    if not vector_data:
-        print("Warning: The embeddings file is empty. Nothing to seed.")
+    json_path = os.path.join(sandbox_dir, "processed_embeddings.json")
+    if not os.path.exists(json_path):
+        print(f"Error: Seed payload data file not found at {json_path}")
         return
 
-    # Extract database credentials
-    db_host = os.getenv("DB_HOST")
-    db_port = os.getenv("DB_PORT")
-    db_name = os.getenv("DB_NAME")
-    db_user = os.getenv("DB_USER")
-    db_password = os.getenv("DB_PASSWORD")
-    
-    print(f"Initializing connection to Postgres Target Container [{db_host}:{db_port}]...")
-    
+    with open(json_path, "r", encoding="utf-8") as f:
+        embedding_records = json.load(f)
+        
+    total_records = len(embedding_records)
+    print(f"Successfully parsed {total_records} vector records from local staging index.")
+    print(f"Target Environment Connection Profile: {settings.APP_ENV}")
+
+    # 2. Establish connection using the unified Pydantic database URI
     try:
-        connection = psycopg2.connect(
-            host=db_host,
-            port=db_port,
-            database=db_name,
-            user=db_user,
-            password=db_password
-        )
-        cursor = connection.cursor()
+        conn = psycopg2.connect(settings.SQLALCHEMY_DATABASE_URI)
+        cursor = conn.cursor()
 
+        # 3. Clean table state and ensure pgvector extension is present
+        print("Initializing table state... Registering extensions and purging old data...")
         cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-        connection.commit()
-
-        # cursor.execute("DROP TABLE IF EXISTS sklearn_docs;")
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sklearn_docs (
-                id INT PRIMARY KEY,
-                text_content TEXT NOT NULL,
-                source_file TEXT NOT NULL,
-                embedding VECTOR(1536) NOT NULL
-            );
-        """)
-
-        connection.commit()
-        
-        # 2. Prevent Data Duplication (Wipe old PoC records cleanly)
-        print("Clearing out legacy tracking records from 'sklearn_docs' table...")
         cursor.execute("TRUNCATE TABLE sklearn_docs;")
-        connection.commit()
-        
-        # 3. Prepare the Mass Batch Ingestion Payload List
-        # We restructure the JSON items into a flat list of tuples for psycopg2
-        db_records_batch = [
-            (record["id"], record["source_file"], record["text_content"], record["embedding"])
-            for record in vector_data
-        ]
-        
-        # Explicitly cast the incoming float list to a vector type (%s::vector)
+        conn.commit()
+
+        # 4. Construct the query execution tuple structure
+        data_tuples = []
+        for record in embedding_records:
+            data_tuples.append((
+                record["id"],
+                record["text_content"],
+                record.get("source_file", "unknown_source.txt"),
+                record["embedding"] # The 1536-dimensional array
+            ))
+
+        print("Executing monolithic bulk insertion stream into Cloud SQL...")
         insert_query = """
-            INSERT INTO sklearn_docs (id, source_file, text_content, embedding)
-            VALUES %s;
+            INSERT INTO sklearn_docs (id, text_content, source_file, embedding)
+            VALUES (%s, %s, %s, %s::vector);
         """
-        
-        print(f"Bulk-inserting {len(db_records_batch)} vector arrays into the data core...")
-        
-        # execute_values executes a single optimized compilation query behind the scenes
-        execute_values(
-            cursor, 
-            insert_query, 
-            db_records_batch, 
-            template="(%s, %s, %s, %s::vector)"
-        )
-        
-        # Commit transaction to disk
-        connection.commit()
-        
-        print("=" * 60)
-        print(f"Database Seeding Milestone Complete!")
-        print(f"Total Active Rows Injected and Indexed: {len(db_records_batch)}")
-        print("=" * 60)
-        
+
+        # Execute structural bulk injection execution
+        cursor.executemany(insert_query, data_tuples)
+        conn.commit() 
+
+        print(f"\nSUCCESS! All {total_records} records successfully seeded into the target database instance!")
+
     except Exception as e:
-        print(f"Database Transaction Processing Failure: {e}")
-        if 'connection' in locals():
-            connection.rollback()
+        print(f"Critical Database Seed Transaction Aborted: {e}")
+        if 'conn' in locals():
+            conn.rollback()
     finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'connection' in locals():
-            connection.close()
+        if 'cursor' in locals(): cursor.close()
+        if 'conn' in locals(): conn.close()
 
 if __name__ == "__main__":
-    seed_mass_vector_database()
+    seed_database()
