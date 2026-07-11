@@ -9,28 +9,37 @@ def chunked_batch_generator(data_list, batch_size=250):
 
 def prepare_database_table() -> None:
     """
-    Ensures pgvector is active, adds modern tracking columns if missing, 
-    and clears out old records to prepare for a clean indexing run.
+    Ensures pgvector is active, configures an automated full-text tsvector 
+    column with an optimized GIN index, and prepares tables for seeding.
     """
-    print("[DATABASE] Running structural verification and table initialization...")
+    print("[DATABASE] Running structural verification and advanced hybrid migrations...")
     try:
         conn = psycopg2.connect(settings.SQLALCHEMY_DATABASE_URI)
         cursor = conn.cursor()
         
-        # Ensure the vector extension exists
+        # 1. Activate spatial matrix extensions
         cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
         
-        # Automatically update table layout to store new pipeline fields
-        cursor.execute("ALTER TABLE sklearn_docs ADD COLUMN IF NOT EXISTS doc_format VARCHAR(50) DEFAULT 'unknown';")
-        cursor.execute("ALTER TABLE sklearn_docs ADD COLUMN IF NOT EXISTS chunk_index INTEGER DEFAULT 0;")
+        # # 2. Build multi-format lineage tracking properties
+        # cursor.execute("ALTER TABLE sklearn_docs ADD COLUMN IF NOT EXISTS doc_format VARCHAR(50) DEFAULT 'html';")
+        # cursor.execute("ALTER TABLE sklearn_docs ADD COLUMN IF NOT EXISTS chunk_index INTEGER DEFAULT 0;")
         
-        # Clear existing data rows
+        # 3. Inject an automated stored full-text search vector column
+        cursor.execute("""
+            ALTER TABLE sklearn_docs ADD COLUMN IF NOT EXISTS text_vector tsvector 
+            GENERATED ALWAYS AS (to_tsvector('english', text_content)) STORED;
+        """)
+        
+        # 4. Generate high-speed inverted keyword lookups indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS sklearn_docs_fts_idx ON sklearn_docs USING gin(text_vector);")
+        
+        # 5. Flush existing data rows for a clean indexing run
         cursor.execute("TRUNCATE TABLE sklearn_docs;")
         
         conn.commit()
-        print("[DATABASE] Table structures initialized and data truncated successfully.")
+        print("[DATABASE] Hybrid schema definitions and structural indexes compiled successfully.")
     except Exception as e:
-        print(f"[DATABASE ERROR] Baseline table setup failed: {e}")
+        print(f"[DATABASE ERROR] Baseline hybrid database setup failed: {e}")
         if 'conn' in locals():
             conn.rollback()
         raise e
@@ -49,7 +58,6 @@ def insert_staged_vector_batch(batch_records: list[dict], internal_batch_size: i
     total_records = len(batch_records)
     print(f"[DATABASE] Received {total_records} records for indexing. Preparing inner batch slicing...")
 
-    # Map our live dictionary list objects into clean tuples for execution
     data_tuples = [
         (
             record["id"],
@@ -72,13 +80,9 @@ def insert_staged_vector_batch(batch_records: list[dict], internal_batch_size: i
         cursor = conn.cursor()
         
         processed_counter = 0
-        # Slice inputs into sub-batches to prevent database out-of-memory crashes
         for sub_batch in chunked_batch_generator(data_tuples, batch_size=internal_batch_size):
             execute_values(cursor, insert_query, sub_batch, template="(%s, %s, %s, %s::vector, %s, %s)")
-            
-            # Flush the database memory log buffer immediately
             conn.commit()
-            
             processed_counter += len(sub_batch)
             print(f"   [SYNC PROGRESS] Safe sub-batch written. Rows synced: {processed_counter}/{total_records}")
 
