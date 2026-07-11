@@ -2,58 +2,76 @@ import os
 from typing import List, Dict, Any
 from ingestion.deduplicator import ContentDeduplicator
 from ingestion.transformer import SemanticChunkTransformer
-from ingestion.parsers import TXTParser, HTMLParser, PDFParser, DOCXParser, CodeParser
+from ingestion.parsers import (
+    TXTParser, HTMLParser, PDFParser, DOCXParser, 
+    ExcelParser, PPTXParser, XMLAndCodeParser
+)
 
 class IngestionPipeline:
     """
-    The master router that directs raw data through deduplication, parsing, and chunking.
+    The main coordinator that manages data routing through 
+    deduplication verification, format-specific parsing, and chunking.
     """
     def __init__(self):
         self.deduplicator = ContentDeduplicator()
         self.transformer = SemanticChunkTransformer(chunk_size=1000, chunk_overlap=150)
         
-        # Router map to select the correct parser based on file extension
-        self.parsers = {
+        # Central routing map binding extensions to concrete parser engines
+        self.parser_registry = {
             ".txt": TXTParser(),
             ".md": TXTParser(),
             ".html": HTMLParser(),
             ".htm": HTMLParser(),
             ".pdf": PDFParser(),
             ".docx": DOCXParser(),
-            ".py": CodeParser(),
-            ".json": CodeParser(),
-            ".xml": CodeParser()
+            ".xlsx": ExcelParser(),
+            ".pptx": PPTXParser(),
+            ".xml": XMLAndCodeParser(),
+            ".py": XMLAndCodeParser(),
+            ".json": XMLAndCodeParser(),
+            ".ini": XMLAndCodeParser(),
+            ".yaml": XMLAndCodeParser(),
+            ".yml": XMLAndCodeParser()
         }
 
-    def _get_parser(self, file_path: str):
-        """Resolves the file extension to the correct parser instance."""
+    def _resolve_parser(self, file_path: str):
+        """Looks up the correct parser instance based on the file extension."""
         ext = os.path.splitext(file_path)[1].lower()
-        return self.parsers.get(ext, TXTParser()) # Fallback to plain text
+        # Fall back gracefully to the TXTParser engine if extension is unrecognized
+        return self.parser_registry.get(ext, self.parser_registry[".txt"])
 
     def process_file(self, source_uri: str, raw_bytes: bytes) -> List[Dict[str, Any]]:
-        """Executes the full ETL chain on a single file payload."""
+        """
+        Processes a raw binary file stream through deduplication, 
+        parsing, and chunk transformation.
+        """
         if not raw_bytes:
+            print(f"[WARN] Received empty byte payload for source: {source_uri}")
             return []
 
-        # 1. Filter: Deduplication Check
+        # 1. Deduplication Verification Phase
         content_hash = self.deduplicator.generate_hash(raw_bytes)
         if self.deduplicator.is_duplicate(content_hash):
-            print(f"Skipping Duplicate: {source_uri}")
+            print(f"[INGESTION] Skipping duplicate item (SHA-256 Match Found): {source_uri}")
             return []
 
-        # 2. Extract: Parse bytes to text
-        parser = self._get_parser(source_uri)
+        # 2. Extract Phase (Dynamic Parser Routing)
+        parser_engine = self._resolve_parser(source_uri)
         try:
-            document = parser.parse(raw_bytes, source_uri)
-        except Exception as e:
-            print(f"Parsing failed for {source_uri}: {e}")
+            extracted_doc = parser_engine.parse(raw_bytes, source_uri)
+        except Exception as parser_error:
+            print(f"[ERROR] Ingestion parser crashed on asset {source_uri}: {parser_error}")
             return []
 
-        # 3. Transform: Split text into semantic chunks
-        chunks = self.transformer.transform(document)
-        
-        # 4. Finalize: Commit hash to ledger to prevent future reprocessing
-        if chunks:
+        # 3. Transform Phase (Semantic Slicing and Ordering Assignment)
+        try:
+            chunk_records = self.transformer.transform(extracted_doc)
+        except Exception as transform_error:
+            print(f"[ERROR] Context transformer chunking failed for {source_uri}: {transform_error}")
+            return []
+
+        # 4. Finalize Tracking
+        if chunk_records:
             self.deduplicator.mark_processed(content_hash)
             
-        return chunks
+        return chunk_records
