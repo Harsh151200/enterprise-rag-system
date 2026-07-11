@@ -1,74 +1,77 @@
 import os
-import json
-import time
-from core.config import settings
+from ingestion.connectors import LocalDirectoryConnector
+from ingestion.pipeline import IngestionPipeline
 from components.embedding_provider import embedding_engine
+from storage.db_seeder import prepare_database_table, insert_staged_vector_batch
 
-def generate_mass_embeddings():
-    sandbox_dir = os.getenv("RAW_DATA_DIR", "data_sandbox/")
-    input_ledger_path = os.path.join(sandbox_dir, "staged_chunks.json")
-    output_ledger_path = os.path.join(sandbox_dir, "processed_embeddings.json")
+def run_production_ingestion_pipeline(target_directory: str, embedding_batch_size: int = 50) -> None:
+    """
+    The central operational harness that stitches stream connectors, 
+    parsers, batch embedders, and transactional database loaders together.
+    """
+    print("[ORCHESTRATOR] Initializing global pluggable ETL pipeline execution flow...")
     
-    # 1. Verification Guardrail Check
-    if not os.path.exists(input_ledger_path):
-        print(f"Error: Compiled chunks ledger '{input_ledger_path}' not found. Run transformer first.")
-        return
+    # Initialize database state and tables
+    prepare_database_table()
+
+    # Instantiate our streaming data connectors and pipeline traffic managers
+    connector = LocalDirectoryConnector(directory_path=target_directory)
+    file_stream = connector.fetch_all()
+    pipeline = IngestionPipeline()
+
+    global_chunk_id = 1
+    processed_file_counter = 0
+    staged_chunk_buffer = []
+
+    print(f"[ORCHESTRATOR] Spawning memory-safe file stream loops over: {target_directory}")
+    print("-" * 80)
+
+    # Stream files one by one via generators to prevent memory accumulation
+    for file_obj in file_stream:
+        processed_file_counter += 1
+        filepath = file_obj["source"]
+        file_bytes = file_obj["bytes"]
+
+        # Run file payloads through deduplication, parsing routing, and semantic transformation
+        chunks = pipeline.process_file(filepath, file_bytes)
         
-    with open(input_ledger_path, "r", encoding="utf-8") as f:
-        staged_chunks = json.load(f)
-        
-    print(f"Loaded {len(staged_chunks)} text segments.")
-    print(f"Active Embedding Mode: {settings.EMBEDDING_MODE}")
+        for chunk in chunks:
+            chunk["id"] = global_chunk_id
+            staged_chunk_buffer.append(chunk)
+            global_chunk_id += 1
+
+            # Dispatch batch array to the abstract embedding vendor when the buffer fills
+            if len(staged_chunk_buffer) >= embedding_batch_size:
+                _execute_vector_batch_load(staged_chunk_buffer)
+                staged_chunk_buffer = [] # Flush memory allocation immediately
+
+    # Process any remaining records left inside the buffer array
+    if staged_chunk_buffer:
+        _execute_vector_batch_load(staged_chunk_buffer)
+
+    print("-" * 80)
+    print("[ORCHESTRATOR] Ingestion cycle execution finalized successfully.")
+    print(f"[ORCHESTRATOR] Evaluated distinct resource files: {processed_file_counter}")
+    print(f"[ORCHESTRATOR] Vectorized chunks synced to database instances: {global_chunk_id - 1}")
+
+
+def _execute_vector_batch_load(chunk_buffer: list[dict]) -> None:
+    """Helper method that isolates, embeds, and seeds a collection chunk stream."""
+    print(f"[ORCHESTRATOR] Shipping vector chunk array segment. Size bounds: {len(chunk_buffer)}")
     
-    processed_records = []
-    BATCH_SIZE = 50  # Packs 50 chunks into 1 request/computation
+    # Extract structural text lists for our abstract dependency injection engine
+    text_payloads = [record["text_content"] for record in chunk_buffer]
     
-    print(f"Launching multi-row matrix transformation stream...")
-    print("-" * 60)
-
-    # 2. Enterprise Batch Loop Processing
-    for i in range(0, len(staged_chunks), BATCH_SIZE):
-        chunk_batch = staged_chunks[i : i + BATCH_SIZE]
+    try:
+        # Generate model embeddings via our unified abstract engine
+        vector_matrices = embedding_engine.embed_batch(text_payloads)
         
-        # Extract just the raw text strings for the input payload
-        batch_texts = [chunk["text_content"] for chunk in chunk_batch]
-        
-        try:
-            # Route through the abstract provider (Instantly handles Local CPU vs Cloud API)
-            vectors = embedding_engine.embed_batch(batch_texts)
+        # Maps coordinates back to their matching document objects
+        for index, coordinates in enumerate(vector_matrices):
+            chunk_buffer[index]["embedding"] = coordinates
             
-            # Unpack and remap the returned vectors to their source dictionaries
-            for idx, vector in enumerate(vectors):
-                original_chunk = chunk_batch[idx]
-                processed_records.append({
-                    "id": original_chunk["id"],
-                    "source_file": original_chunk["source_file"],
-                    "text_content": original_chunk["text_content"],
-                    "embedding": vector
-                })
-            
-            print(f"Processed Batch [{i//BATCH_SIZE + 1}]: Chunks {i+1} to {min(i+BATCH_SIZE, len(staged_chunks))}")
-            
-            # Apply a polite throttle only if we are using the remote rate-limited Cloud API
-            if settings.EMBEDDING_MODE == "CLOUD":
-                time.sleep(1.0)
-
-        except Exception as e:
-            print(f"Exception on Batch starting at chunk {i+1}: {e}")
-            if settings.EMBEDDING_MODE == "CLOUD":
-                print("⏸ Throttled or Network Error. Sleeping 10 seconds before continuing...")
-                time.sleep(10)
-            continue
-
-    # 3. Commit fully serialized vector coordinates array ledger to disk
-    with open(output_ledger_path, "w", encoding="utf-8") as f:
-        json.dump(processed_records, f, indent=4, ensure_ascii=False)
-        
-    print("=" * 60)
-    print(f"Embedding Pipeline Completed Successfully!")
-    print(f"Total Vector Payloads Serialized: {len(processed_records)}")
-    print(f"Output Saved to: {output_ledger_path}")
-    print("=" * 60)
-
-if __name__ == "__main__":
-    generate_mass_embeddings()
+        # Stream computed matrix records straight to PostgreSQL bulk inserter
+        insert_staged_vector_batch(chunk_buffer)
+        print(f"   [SYNC SUCCESS] Transmitted chunk boundaries up to unique ID: {chunk_buffer[-1]['id']}")
+    except Exception as err:
+        print(f"[CRITICAL ERR] Pipeline processing step failed at batch chunk sequence: {err}")

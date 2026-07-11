@@ -9,7 +9,9 @@ def semantic_search(user_query: str, top_k: int = 3) -> list[dict]:
     """
     # 1. Route the query string through the abstract embedding provider
     try:
-        query_vector = embedding_engine.embed_text(user_query)
+        # CRITICAL: Nomic/Orange requires the search_query prefix for retrieval
+        formatted_query = f"search_query: {user_query}"
+        query_vector = embedding_engine.embed_text(formatted_query)
     except Exception as e:
         print(f"Retrieval Error: Failed to embed user query. Details: {e}")
         return []
