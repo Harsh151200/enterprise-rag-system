@@ -1,14 +1,17 @@
 import os
 from openai import OpenAI
 from core.config import settings
-from storage.retriever import semantic_search
+from storage.retriever import hybrid_search
 
-def generate_rag_response(user_query):
-    """Generates a fully grounded RAG response with live citations via APIs."""
-    print("Orchestrator Step 1: Fetching context matrix from scaled database core...")
+def generate_rag_response(user_query: str) -> str:
+    """
+    Generates a fully grounded RAG response with live citations via APIs,
+    utilizing blended keyword and dense vector hybrid search strategies.
+    """
+    print("Orchestrator Step 1: Fetching context matrix from scaled hybrid database core...")
 
-    # 1. Retrieve the top matching records via our abstracted retriever
-    retrieved_records = semantic_search(user_query, top_k=3)
+    # 1. Retrieve the top matching records via our abstracted hybrid retriever (top_k=4 for richer blend)
+    retrieved_records = hybrid_search(user_query, top_k=4)
 
     if not retrieved_records:
         print("Warning: No relevant documentation blocks retrieved from database.")
@@ -17,14 +20,22 @@ def generate_rag_response(user_query):
     else:
         context_blocks = []
         citations = set()
-        for record in retrieved_records:
-            context_blocks.append(record["text"])
+        for idx, record in enumerate(retrieved_records, 1):
+            # Format raw strings with explicit lineage metadata headers to maximize attention anchoring
+            formatted_chunk = (
+                f"[DOCUMENT NODE #{idx}] (Format: {record['format']} | RRF Score: {record['rrf_score']:.5f})\n"
+                f"Source Location: {record['source']} | Chunk Offset: {record['chunk_index']}\n"
+                f"{'-' * 60}\n"
+                f"{record['text']}"
+            )
+            context_blocks.append(formatted_chunk)
+            
             if record["source"]:
                 citations.add(record["source"])
                 
         context_str = "\n\n--- DOCUMENTATION CHUNK ---\n".join(context_blocks)
 
-    # 2. Formulate the strict grounding System Prompt
+    # 2. Formulate the strict grounding System Prompt (Preserving your exact operational logic)
     system_prompt = (
         "You are an enterprise AI technical support engineer specialized in scikit-learn architecture.\n"
         "Your core directive is to answer the user's question using ONLY the provided documentation context blocks.\n"
@@ -47,7 +58,7 @@ def generate_rag_response(user_query):
                     """
     
     # 3. Extract verified credentials from our central Pydantic Configuration Layer
-    # Safely route to OpenAI API Key or fall back to the GitHub Models token structure
+    # Safely routes to OpenAI API Key or falls back to the GitHub Models token structure
     api_key = settings.OPENAI_API_KEY or settings.GITHUB_TOKEN
     
     # Check if we are running in GitHub Models proxy mode or direct OpenAI mode
@@ -66,7 +77,7 @@ def generate_rag_response(user_query):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.0,
+                temperature=0.0, # Kept at absolute 0 for predictable testing runs
             )
 
             llm_answer = response.choices[0].message.content.strip()
