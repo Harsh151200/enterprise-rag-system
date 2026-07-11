@@ -5,7 +5,7 @@ from typing import Union, Set
 
 class ContentDeduplicator:
     """
-    Engine responsible for computing cryptographic hashes of file contents 
+    Engine responsible for computing cryptographic hashes of file contents
     and tracking them via a local JSON ledger to prevent duplicate processing.
     """
     def __init__(self):
@@ -14,7 +14,7 @@ class ContentDeduplicator:
         self.processed_hashes: Set[str] = set()
         self._load_ledger()
 
-    def _load_ledger(self):
+    def _load_ledger(self) -> None:
         """Loads the existing hash ledger from disk into a fast-lookup set."""
         if os.path.exists(self.ledger_path):
             try:
@@ -22,23 +22,22 @@ class ContentDeduplicator:
                     hash_list = json.load(f)
                     self.processed_hashes = set(hash_list)
             except Exception as e:
-                print(f"Warning: Could not read deduplication ledger: {e}")
+                print(f"[WARN] Could not read deduplication ledger: {e}")
                 self.processed_hashes = set()
         else:
-            # Ensure directory exists before first write
             os.makedirs(os.path.dirname(self.ledger_path), exist_ok=True)
 
-    def _save_ledger(self):
-        """Commits the active hash set to the JSON file."""
+    def _save_ledger(self) -> None:
+        """Commits the active hash set back to the JSON file on disk."""
         try:
             with open(self.ledger_path, "w", encoding="utf-8") as f:
                 json.dump(list(self.processed_hashes), f, indent=4)
         except Exception as e:
-            print(f"Error: Failed to write to deduplication ledger: {e}")
+            print(f"[ERROR] Failed to write to deduplication ledger: {e}")
 
     @staticmethod
     def generate_hash(content: Union[bytes, str]) -> str:
-        """Computes a deterministic SHA-256 hash for the given payload."""
+        """Computes a deterministic SHA-256 hash string for a given byte or text payload."""
         hasher = hashlib.sha256()
         if isinstance(content, str):
             hasher.update(content.encode("utf-8"))
@@ -47,11 +46,11 @@ class ContentDeduplicator:
         return hasher.hexdigest()
 
     def is_duplicate(self, content_hash: str) -> bool:
-        """Checks if a hash is already in the ledger."""
+        """Evaluates if the generated hash already exists in the tracking ledger."""
         return content_hash in self.processed_hashes
 
-    def mark_processed(self, content_hash: str):
-        """Adds a new hash to the ledger and persists it to disk."""
+    def mark_processed(self, content_hash: str) -> None:
+        """Adds a new hash to the local tracking set and flushes changes to disk."""
         if content_hash not in self.processed_hashes:
             self.processed_hashes.add(content_hash)
             self._save_ledger()
