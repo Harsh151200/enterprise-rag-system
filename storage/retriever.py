@@ -22,7 +22,7 @@ def semantic_search(user_query: str, top_k: int = 3) -> list[dict]:
         # Note: The <=> operator computes cosine distance natively in pgvector.
         # We explicitly cast to ::vector to ensure strict PostgreSQL data type matching.
         search_query = """
-            SELECT text_content, source_file 
+            SELECT text_content, source_file, doc_format, chunk_index 
             FROM sklearn_docs 
             ORDER BY embedding <=> %s::vector 
             LIMIT %s;
@@ -33,9 +33,13 @@ def semantic_search(user_query: str, top_k: int = 3) -> list[dict]:
         
         # 3. Format and return the dictionary list matching the orchestrator's expectations
         retrieved_records = [
-            {"text": row[0], "source": row[1]} for row in results
+            {
+                "text": row[0], 
+                "source": row[1],
+                "format": row[2],
+                "chunk_index": row[3]
+            } for row in results
         ]
-        
         return retrieved_records
 
     except Exception as e:
