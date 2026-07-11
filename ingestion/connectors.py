@@ -7,18 +7,20 @@ from bs4 import BeautifulSoup
 from ingestion.base import BaseConnector
 
 class LocalDirectoryConnector(BaseConnector):
-    """Recursively reads raw bytes from local file system directories."""
+    """
+    Recursively scans and streams raw bytes from local file system 
+    directories using generators to maintain a flat memory footprint.
+    """
     
     def __init__(self, directory_path: str, allowed_extensions: List[str] = None):
         self.directory_path = directory_path
         self.allowed_extensions = allowed_extensions or [".txt", ".pdf", ".html", ".docx", ".xml", ".py"]
 
-    def fetch_all(self) -> List[Dict[str, Any]]:
-        """Scans the directory and yields file paths and their raw bytes."""
-        files_data = []
+    def fetch_all(self) -> Generator[Dict[str, Any], None, None]:
+        """Scans the directory and YIELDS files one by one to save memory."""
         if not os.path.exists(self.directory_path):
             print(f"[ERROR] Directory not found: {self.directory_path}")
-            return files_data
+            return
 
         for root, _, files in os.walk(self.directory_path):
             for file in files:
@@ -26,9 +28,9 @@ class LocalDirectoryConnector(BaseConnector):
                 if ext in self.allowed_extensions:
                     file_path = os.path.join(root, file)
                     raw_bytes = self.fetch(file_path)
-                    files_data.append({"source": file_path, "bytes": raw_bytes})
                     
-        return files_data
+                    # Yields the file stream immediately, clearing it from RAM on the next loop iteration
+                    yield {"source": file_path, "bytes": raw_bytes}
 
     def fetch(self, source_uri: str) -> bytes:
         with open(source_uri, "rb") as f:

@@ -8,21 +8,22 @@ from storage.db_seeder import seed_database_at_scale
 def execute_end_to_end_test():
     print("[TEST] Launching Milestone 2 Verification Execution Cycle...")
     
-    # 1. Connect and Extract
+    # 1. Initialize the Generator Connector
     connector = LocalDirectoryConnector(directory_path="data_sandbox/test_inputs")
-    raw_files = connector.fetch_all()
-    print(f"[TEST] Connector discovered {len(raw_files)} files in target directory.")
+    file_stream = connector.fetch_all()
 
-    # 2. Parse and Transform
+    # 2. Parse and Transform over the stream
     pipeline = IngestionPipeline()
     consolidated_chunks = []
     global_id = 1
+    file_counter = 0
 
-    for file_obj in raw_files:
+    # Iterating over the stream processes files sequentially without memory accumulation
+    for file_obj in file_stream:
+        file_counter += 1
         filepath = file_obj["source"]
         file_bytes = file_obj["bytes"]
         
-        # Route through full deduplication, parsing, and chunk transformation
         chunks = pipeline.process_file(filepath, file_bytes)
         
         for chunk in chunks:
@@ -30,15 +31,16 @@ def execute_end_to_end_test():
             consolidated_chunks.append(chunk)
             global_id += 1
 
+    print(f"[TEST] Stream extraction complete. Discovered and parsed {file_counter} source files.")
     print(f"[TEST] Processing finished. Total chunks generated: {len(consolidated_chunks)}")
 
-    # 3. Save Staged Chunks to disk for Embedder compatibility
+    # 3. Save Staged Chunks to disk
     sandbox_dir = "data_sandbox/"
     staged_chunks_path = os.path.join(sandbox_dir, "staged_chunks.json")
     with open(staged_chunks_path, "w", encoding="utf-8") as f:
-        json.load = json.dump(consolidated_chunks, f, indent=4)
+        json.dump(consolidated_chunks, f, indent=4)
 
-    # 4. Generate Embeddings using our Abstract Engine
+    # 4. Generate Embeddings
     print("[TEST] Dispatched chunks to abstract embedding provider...")
     processed_embeddings = []
     
@@ -52,7 +54,7 @@ def execute_end_to_end_test():
         json.dump(processed_embeddings, f, indent=4)
     print("[TEST] Embeddings catalog generated successfully.")
 
-    # 5. Load data into your database
+    # 5. Load data into database
     seed_database_at_scale(batch_size=10)
     print("[TEST] Verification Cycle finished completely.")
 
