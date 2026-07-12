@@ -1,9 +1,10 @@
+import os
 import streamlit as st
 import requests
 import pandas as pd
 
-# Define backend entry-point base configurations
-BACKEND_API_URL = "http://127.0.0.1:8000"
+# Fall back to localhost only if running outside of Docker
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(
     page_title="Enterprise RAG Management Console",

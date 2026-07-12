@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies needed for compiling certain python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy configuration arrays first to leverage Docker layer caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application layers
+COPY core/ ./core/
+COPY storage/ ./storage/
+COPY ingestion/ ./ingestion/
+COPY components/ ./components/
+COPY app.py .
+COPY pipeline_logger.py .
+
+EXPOSE 8000
+
+# Run using standard production-ready Uvicorn binding parameters
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
