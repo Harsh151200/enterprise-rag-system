@@ -7,10 +7,12 @@ services:
     container_name: staging-rag-db
     ports:
       - "5433:5432"
+    env_file:
+      - .env.staging
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: staging_password_secret
-      POSTGRES_DB: enterprise_rag_staging
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
     volumes:
       - staging_db_data:/var/lib/postgresql/data
 
@@ -22,12 +24,13 @@ services:
     container_name: staging-rag-backend
     ports:
       - "8000:8000"
+    env_file:
+      - .env.staging
     environment:
-      - APP_ENV=staging
-      # Note how we use the service name 'staging-db' as the hostname string
-      - SQLALCHEMY_DATABASE_URI=postgresql://postgres:staging_password_secret@staging-db:5432/enterprise_rag_staging
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - APP_ENV=STAGING
+      # Remaps connection targets away from 127.0.0.1 onto the internal Docker service DNS name
+      - DB_HOST=${DOCKER_DB_HOST}
+      - DB_PORT=${DOCKER_DB_PORT}
     depends_on:
       - staging-db
 
@@ -40,7 +43,6 @@ services:
     ports:
       - "8501:8501"
     environment:
-      # Directs frontend python workers straight to the backend container over the internal bridge network
       - BACKEND_API_URL=http://backend-api:8000
     depends_on:
       - backend-api
