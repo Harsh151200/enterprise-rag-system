@@ -2,9 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Inject ONLY the frontend UI dependencies
+COPY requirements-frontend.txt .
+RUN pip install --no-cache-dir -r requirements-frontend.txt
 
+# Copy the frontend Streamlit script
 COPY app_ui.py .
 
 EXPOSE 8501

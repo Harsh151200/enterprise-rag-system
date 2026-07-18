@@ -8,9 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy configuration arrays first to leverage Docker layer caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Inject ONLY the backend dependencies
+COPY requirements-backend.txt .
+RUN pip install --no-cache-dir -r requirements-backend.txt
 
 # Copy application layers
 COPY core/ ./core/
@@ -18,9 +20,9 @@ COPY storage/ ./storage/
 COPY ingestion/ ./ingestion/
 COPY components/ ./components/
 COPY app.py .
+COPY storage/pipeline_logger.py .
 COPY cli.py .
 
 EXPOSE 8000
 
-# Run using standard production-ready Uvicorn binding parameters
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
