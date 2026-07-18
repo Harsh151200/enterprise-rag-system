@@ -19,7 +19,7 @@ def run_production_ingestion_pipeline(
     audit_logger = PipelineLogger()
     run_id = audit_logger.start_run(pipeline_name=f"ETL_INGESTION_{source_type.upper()}")
 
-    global_chunk_id = 1
+    chunk_counter = 0
     processed_counter = 0
     staged_chunk_buffer = []
 
@@ -27,7 +27,7 @@ def run_production_ingestion_pipeline(
         print(f"[ORCHESTRATOR] Initializing pluggable ETL pipeline execution [Run ID: {run_id}, Mode: {source_type.upper()}]...")
         
         # Reset database structures and run dynamic migrations
-        prepare_database_table()
+        # prepare_database_table()
         pipeline = IngestionPipeline()
 
         # Pluggable Connector Resolution
@@ -57,9 +57,9 @@ def run_production_ingestion_pipeline(
             chunks = pipeline.process_file(filepath, file_bytes)
             
             for chunk in chunks:
-                chunk["id"] = global_chunk_id
+                # chunk["id"] = global_chunk_id
                 staged_chunk_buffer.append(chunk)
-                global_chunk_id += 1
+                chunk_counter += 1
 
                 # Dispatch batch array when the buffer fills up
                 if len(staged_chunk_buffer) >= embedding_batch_size:
@@ -78,14 +78,14 @@ def run_production_ingestion_pipeline(
         print("-" * 80)
         print("[ORCHESTRATOR] Ingestion execution cycle concluded successfully.")
         print(f"[ORCHESTRATOR] Total items fully extracted: {processed_counter}")
-        print(f"[ORCHESTRATOR] Total database vector rows indexed: {global_chunk_id - 1}")
+        print(f"[ORCHESTRATOR] Total database vector rows indexed: {chunk_counter}")
 
         # 3. Log a clean SUCCESS state checkpoint to the audit ledger rows
         audit_logger.complete_run(
             run_id=run_id,
             extracted=processed_counter,
-            transformed=global_chunk_id - 1,
-            indexed=global_chunk_id - 1
+            transformed=chunk_counter,
+            indexed=chunk_counter
         )
 
     except Exception as runtime_error:
@@ -95,8 +95,8 @@ def run_production_ingestion_pipeline(
             run_id=run_id,
             error=runtime_error,
             extracted=processed_counter,
-            transformed=global_chunk_id - 1,
-            indexed=global_chunk_id - 1
+            transformed=chunk_counter,
+            indexed=chunk_counter
         )
         raise runtime_error
 
@@ -117,6 +117,6 @@ def _execute_vector_batch_load(chunk_buffer: list[dict]) -> None:
             
         # The raw (unprefixed) chunks inside chunk_buffer are pushed to the DB
         insert_staged_vector_batch(chunk_buffer, internal_batch_size=250)
-        print(f"    [SYNC SUCCESS] Synchronized chunks up to ID: {chunk_buffer[-1]['id']}")
+        print("[SYNC SUCCESS] Synchronized chunks to database with vector embeddings.")
     except Exception as err:
         print(f"[CRITICAL ERROR] Failed processing batch slice chunk sequence: {err}")

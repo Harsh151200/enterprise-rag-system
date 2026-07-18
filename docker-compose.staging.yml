@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   # Staging Database Service running pgvector natively
   staging-db:
-    image: pgvector/pgvector:16
+    image: pgvector/pgvector:pg16
     container_name: staging-rag-db
     ports:
-      - "5433:5432"
+      - "5434:5432"
     env_file:
       - .env.staging
     environment:
@@ -28,7 +26,6 @@ services:
       - .env.staging
     environment:
       - APP_ENV=STAGING
-      # Remaps connection targets away from 127.0.0.1 onto the internal Docker service DNS name
       - DB_HOST=${DOCKER_DB_HOST}
       - DB_PORT=${DOCKER_DB_PORT}
     depends_on:
