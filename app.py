@@ -39,10 +39,15 @@ def get_pipeline_audit_logs() -> List[Dict[str, Any]]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/query", status_code=status.HTTP_200_OK)
-def process_hybrid_query(payload: QueryRequest) -> Dict[str, str]:
+def process_hybrid_query(payload: QueryRequest) -> Dict[str, Any]:
+    """Processes search queries and returns structured answer and citation arrays."""
     try:
-        ai_response = generate_rag_response(user_query=payload.question)
-        return {"query": payload.question, "response": ai_response}
+        result = generate_rag_response(user_query=payload.question)
+        return {
+            "query": payload.question, 
+            "answer": result["answer"], 
+            "citations": result["citations"]
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

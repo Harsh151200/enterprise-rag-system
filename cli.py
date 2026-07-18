@@ -60,8 +60,16 @@ def main():
             embedding_batch_size=args.batch_size, max_resources=args.limit
         )
     elif args.command == "query":
-        answer = generate_rag_response(user_query=args.question)
-        print(f"\n==================== CONSOLE ANSWER ====================\n{answer}\n========================================================\n")
+        result = generate_rag_response(user_query=args.question)
+        print(f"\n==================== CONSOLE ANSWER ====================\n{result['answer']}")
+        
+        # FIXED: Iterates and prints citations safely if they exist in the dictionary payload
+        if result.get("citations"):
+            print("\n--- Verified Sources ---")
+            for source in result["citations"]:
+                print(f" -> {source}")
+                
+        print("========================================================\n")
     elif args.command == "status":
         execute_status_check()
     else:

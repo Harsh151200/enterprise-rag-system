@@ -42,6 +42,11 @@ with tab_chat:
     for message in st.session_state["chat_history"]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            # Render historic citations cleanly if they exist in the payload
+            if message.get("citations"):
+                with st.expander("🔖 Verified Reference Citations"):
+                    for source in message["citations"]:
+                        st.markdown(f"* `{source}`")
 
     # Intercept new user inputs
     user_query = st.chat_input("Ask a technical scikit-learn documentation question...")
@@ -67,11 +72,23 @@ with tab_chat:
                 
                 if backend_response.status_code == 200:
                     answer_data = backend_response.json()
-                    final_answer = answer_data.get("response", "No answer could be generated.")
+                    final_answer = answer_data.get("answer", "No answer could be generated.")
+                    citations = answer_data.get("citations", [])
+                    
                     response_placeholder.markdown(final_answer)
                     
+                    # Render new citations dynamically
+                    if citations:
+                        with st.expander("🔖 Verified Reference Citations"):
+                            for source in citations:
+                                st.markdown(f"* `{source}`")
+                    
                     # Lock response frames into history ledger states
-                    st.session_state["chat_history"].append({"role": "assistant", "content": final_answer})
+                    st.session_state["chat_history"].append({
+                        "role": "assistant", 
+                        "content": final_answer,
+                        "citations": citations
+                    })
                 else:
                     error_detail = backend_response.json().get("detail", "Unknown server malfunction.")
                     response_placeholder.error(f"API Error ({backend_response.status_code}): {error_detail}")
