@@ -13,6 +13,12 @@ services:
       - POSTGRES_DB=${DB_NAME}
     volumes:
       - staging_db_data:/var/lib/postgresql/data
+    # NEW: Healthcheck prevents the backend from crashing during database bootup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # Backend Core API Service
   backend-api:
@@ -28,8 +34,13 @@ services:
       - APP_ENV=STAGING
       - DB_HOST=${DOCKER_DB_HOST}
       - DB_PORT=${DOCKER_DB_PORT}
+    volumes:
+      # NEW: Bind mount links your physical sandbox folder directly to the container
+      - ./data_sandbox:/app/data_sandbox
     depends_on:
-      - staging-db
+      # NEW: Forces the backend to wait until PostgreSQL passes its healthcheck
+      staging-db:
+        condition: service_healthy
 
   # Frontend Dashboard Interface Service
   frontend-ui:

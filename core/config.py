@@ -20,6 +20,7 @@ class BaseConfig(BaseSettings):
     
     GITHUB_TOKEN: str | None = Field(default=None, alias="GITHUB_TOKEN")
     OPENAI_API_KEY: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    HF_TOKEN: str | None = Field(default=None, alias="HF_TOKEN")
 
     # This property is dynamically assembled after field initialization
     SQLALCHEMY_DATABASE_URI: str | None = None
