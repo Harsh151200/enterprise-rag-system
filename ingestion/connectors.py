@@ -6,6 +6,28 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from ingestion.base import BaseConnector
 
+# The same blocklist you used in your IngestionPipeline
+FORBIDDEN_URL_EXTENSIONS = {
+    ".zip", ".tar", ".gz", ".rar", ".7z", 
+    ".exe", ".bin", ".whl", ".pyc", 
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico"
+}
+
+def is_crawlable_url(url: str) -> bool:
+    """
+    Analyzes a URL and returns False if it points to a binary or archive file.
+    """
+    # Parse the URL to safely isolate the path (ignores query parameters like ?id=123)
+    parsed_url = urlparse(url)
+    
+    # Extract the extension from the path (e.g., '/stable/auto_examples.zip' -> '.zip')
+    ext = os.path.splitext(parsed_url.path)[1].lower()
+    
+    if ext in FORBIDDEN_URL_EXTENSIONS:
+        return False
+        
+    return True
+
 class LocalDirectoryConnector(BaseConnector):
     """
     Recursively scans and streams raw bytes from local file system
@@ -100,8 +122,9 @@ class DynamicWebCrawlerConnector(BaseConnector):
                     is_same_domain = urlparse(clean_link).netloc == self.domain_lock
                     in_target_scope = self.path_filter in clean_link
                     is_new_node = clean_link not in self.visited_urls and clean_link not in self.url_queue
+                    is_crawlable = is_crawlable_url(clean_link)
 
-                    if is_same_domain and in_target_scope and is_new_node:
+                    if is_same_domain and in_target_scope and is_new_node and is_crawlable:
                         self.url_queue.append(clean_link)
             except Exception as e:
                 print(f"[WARNING] Failed parsing hyperlinks inside node {current_url}: {e}")

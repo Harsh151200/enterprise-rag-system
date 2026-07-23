@@ -34,6 +34,12 @@ class IngestionPipeline:
             ".yml": XMLAndCodeParser()
         }
 
+        # NEW: Explicit list of binary/archive formats to drop immediately
+        self.forbidden_extensions = {
+            ".zip", ".tar", ".gz", ".rar", ".7z", 
+            ".exe", ".bin", ".whl", ".pyc", ".png", ".jpg", ".jpeg", ".gif"
+        }
+
     @staticmethod
     def _sanitize_text(text: str) -> str:
         """Removes null bytes (0x00) and NUL characters from raw strings."""
@@ -68,6 +74,12 @@ class IngestionPipeline:
         """
         if not raw_bytes:
             print(f"[WARN] Received empty byte payload for source: {source_uri}")
+            return []
+
+        # NEW: Intercept and drop forbidden file types instantly
+        ext = os.path.splitext(source_uri)[1].lower()
+        if ext in self.forbidden_extensions:
+            print(f"[INGESTION] Skipping unsupported binary/archive file: {source_uri}")
             return []
 
         # 1. Deduplication Verification Phase
