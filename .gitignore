@@ -17,3 +17,4 @@ infra/*.tfvars
 infra/.terraform.lock.hcl
 
 cloud-sql-proxy.exe
+*.backup

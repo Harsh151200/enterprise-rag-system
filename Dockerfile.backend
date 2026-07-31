@@ -2,19 +2,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies needed for compiling certain python packages
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install ultra-slim CPU PyTorch
 RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# Inject ONLY the backend dependencies
+# Install backend dependencies
 COPY requirements-backend.txt .
 RUN pip install --no-cache-dir -r requirements-backend.txt
 
-# Copy application layers
+# NEW: Cache the model weights into the image layer during build time
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('Orange/orange-nomic-v1.5-1536', trust_remote_code=True)"
+
+# Copy application files
 COPY core/ ./core/
 COPY storage/ ./storage/
 COPY ingestion/ ./ingestion/
@@ -25,4 +29,5 @@ COPY cli.py .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# NEW: Dynamic PORT handling for Cloud Run compatibility
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]

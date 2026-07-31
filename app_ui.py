@@ -181,7 +181,8 @@ with tab_admin:
                 df_logs = pd.DataFrame(logs_array)
                 # Reorder columns for optimal dashboard scannability
                 display_cols = ["run_id", "pipeline_name", "status", "extracted", "transformed", "indexed", "started_at"]
-                st.dataframe(df_logs[display_cols], use_container_width=True)
+                df_logs = df_logs.astype(str)
+                st.dataframe(df_logs[display_cols].head(500), use_container_width=True)
             else:
                 st.info("No background pipeline logs written to database tables yet.")
         else:

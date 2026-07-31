@@ -38,12 +38,16 @@ def generate_rag_response(user_query: str) -> Dict[str, Any]:
                 
         context_str = "\n\n--- DOCUMENTATION CHUNK ---\n".join(context_blocks)
 
+        print("\n[DEBUG] --- EXACT CONTEXT SENT TO LLM ---")
+        print(context_str)
+        print("[DEBUG] -----------------------------------\n")
+
     # 2. Formulate the strict grounding System Prompt
     system_prompt = (
         "You are an enterprise AI technical support engineer specialized in scikit-learn architecture.\n"
         "Your core directive is to answer the user's question using ONLY the provided documentation context blocks.\n"
         "Adhere to these strict operational constraints:\n"
-        "1. Direct text grounding: Rely only on facts directly stated in the context.\n"
+        "1. Rely on the provided context to anchor your answer, but you may synthesize broad machine learning definitions if the context mentions the specific algorithmic implementations.\n"
         "2. Zero speculation: If the provided context does not contain the answer, explicitly state: "
         "'I do not possess the verified context required to answer this inquiry.' Do not attempt to extrapolate or invent parameters.\n"
         "3. Clear formatting: Present code snippets or configurations cleanly when available.\n"
