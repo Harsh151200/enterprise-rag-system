@@ -1,0 +1,13 @@
+Here is the summary of the infrastructure and configuration files we explicitly fixed:
+
+core/config.py: Refactored the Pydantic model to enforce standard DB defaults (port 5432, enterprise_rag_db). Added URL-encoding to DB_PASSWORD to prevent parsing exceptions with special characters like @. Wired ProductionConfig to read .env.production for local proxy migrations.
+
+Dockerfile.backend & Dockerfile.frontend: Updated the CMD entrypoints to use dynamic  injection. This guarantees the containers can run locally on 8000/8501, while seamlessly binding to the dynamic ports required by serverless GCP Cloud Run.
+
+docker-compose.staging.yml: Removed conflicting DOCKER_DB_HOST variables. Set internal networking to use standard staging-db:5432 DNS routing, while mapping the host port to 5434 to prevent local Windows conflicts.
+
+infra/variables.tf: Defined the strict canonical variables (db_name, db_user, app_env) so Terraform stops relying on default PostgreSQL values.
+
+infra/main.tf: Mapped the Cloud SQL instance and Cloud Run container directly to the new canonical variables. Injected APP_ENV=PRODUCTION explicitly into the container runtime.
+
+storage/db_seeder.py: Refactored the insert_staged_vector_batch function to drop explicit ID insertion, allowing PostgreSQL to correctly handle its own auto-incrementing native sequences.
