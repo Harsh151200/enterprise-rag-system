@@ -79,7 +79,7 @@ with tab_chat:
                     
                     # Render new citations dynamically
                     if citations:
-                        with st.expander("🔖 Verified Reference Citations"):
+                        with st.expander("Verified Reference Citations"):
                             for source in citations:
                                 st.markdown(f"* `{source}`")
                     
@@ -136,7 +136,7 @@ with tab_admin:
     input_type = admin_col1.selectbox("Connector Ingestion Mechanism Type", ["local", "web"])
     input_path = admin_col2.text_input(
         "Source Destination Target Path/URL", 
-        value="data_sandbox/test_inputs" if input_type == "local" else "https://scikit-learn.org/stable/index.html"
+        value="data_sandbox/test_inputs" if input_type == "local" else ""
     )
     input_limit = admin_col3.number_value = admin_col3.text_input("Resource Extraction Limit (Optional)", value="5")
     

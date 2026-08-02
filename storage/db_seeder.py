@@ -28,7 +28,7 @@ def prepare_database_table() -> None:
         
         # 3. Provision primary document datastore with exact dimension constraint bounds
         cursor.execute(f"""
-            CREATE TABLE IF NOT EXISTS public.sklearn_docs (
+            CREATE TABLE IF NOT EXISTS public.enterprise_documents (
                 id serial4 NOT NULL,
                 text_content text NOT NULL,
                 source_file varchar(500) NOT NULL,
@@ -36,18 +36,18 @@ def prepare_database_table() -> None:
                 doc_format varchar(50) DEFAULT 'unknown'::character varying NULL,
                 chunk_index int4 DEFAULT 0 NULL,
                 text_vector tsvector GENERATED ALWAYS AS (to_tsvector('english'::regconfig, text_content)) STORED NULL,
-                CONSTRAINT sklearn_docs_pkey PRIMARY KEY (id)
+                CONSTRAINT enterprise_documents_pkey PRIMARY KEY (id)
             );
         """)
         
         # 4. Bind structural indexes for the primary document datastore
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS sklearn_docs_embedding_hnsw_idx 
-            ON public.sklearn_docs USING hnsw (embedding vector_cosine_ops);
+            CREATE INDEX IF NOT EXISTS enterprise_documents_embedding_hnsw_idx 
+            ON public.enterprise_documents USING hnsw (embedding vector_cosine_ops);
         """)
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS sklearn_docs_fts_idx 
-            ON public.sklearn_docs USING gin (text_vector);
+            CREATE INDEX IF NOT EXISTS enterprise_documents_fts_idx 
+            ON public.enterprise_documents USING gin (text_vector);
         """)
         
         # 5. Provision the real-time background tracking ledger datastore
@@ -113,7 +113,7 @@ def insert_staged_vector_batch(batch_records: list[dict], internal_batch_size: i
 
     # FIXED: Omitted explicit id insertion to let PostgreSQL handle auto-increment native sequences
     insert_query = """
-        INSERT INTO sklearn_docs (text_content, source_file, embedding, doc_format, chunk_index)
+        INSERT INTO enterprise_documents (text_content, source_file, embedding, doc_format, chunk_index)
         VALUES %s;
     """
 

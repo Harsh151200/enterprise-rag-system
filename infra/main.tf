@@ -158,12 +158,12 @@ resource "google_sql_database_instance" "postgres_instance" {
 }
 
 resource "google_sql_database" "vector_database" {
-  name     = "vector_db" 
+  name     = var.db_name
   instance = google_sql_database_instance.postgres_instance.name
 }
 
 resource "google_sql_user" "database_user" {
-  name     = "postgres"
+  name     = var.db_user
   instance = google_sql_database_instance.postgres_instance.name
   password = var.db_password 
 }
@@ -207,7 +207,7 @@ resource "google_cloud_run_v2_service" "api_service" {
     }
 
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v1.0"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v3.0"
 
       # NEW: Grants enough RAM to hold PyTorch and SentenceTransformer in memory
       resources {
@@ -223,12 +223,17 @@ resource "google_cloud_run_v2_service" "api_service" {
 
       # Standard environment variables...
       env {
+        # NEW: Explicitly signals the backend to load ProductionConfig
+        name  = "APP_ENV"
+        value = var.app_env
+      }
+      env {
         name  = "DB_HOST"
         value = google_sql_database_instance.postgres_instance.private_ip_address
       }
       env {
         name  = "DB_PORT"
-        value = "5432" 
+        value = "5432" # Standard canonical Postgres port
       }
       env {
         name  = "DB_NAME"

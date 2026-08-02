@@ -23,14 +23,14 @@ def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -
         WITH vector_search AS (
             SELECT id, 
                    ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector) AS rank
-            FROM sklearn_docs
+            FROM enterprise_documents
             ORDER BY embedding <=> %s::vector
             LIMIT %s
         ),
         fts_search AS (
             SELECT id, 
                    ROW_NUMBER() OVER (ORDER BY ts_rank_cd(text_vector, plainto_tsquery('english', %s)) DESC) AS rank
-            FROM sklearn_docs
+            FROM enterprise_documents
             WHERE text_vector @@ plainto_tsquery('english', %s)
             ORDER BY ts_rank_cd(text_vector, plainto_tsquery('english', %s)) DESC
             LIMIT %s
@@ -41,7 +41,7 @@ def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -
             d.doc_format, 
             d.chunk_index,
             COALESCE(1.0 / (60.0 + v.rank), 0.0) + COALESCE(1.0 / (60.0 + f.rank), 0.0) AS rrf_score
-        FROM sklearn_docs d
+        FROM enterprise_documents d
         LEFT JOIN vector_search v ON d.id = v.id
         LEFT JOIN fts_search f ON d.id = f.id
         WHERE v.id IS NOT NULL OR f.id IS NOT NULL

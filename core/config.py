@@ -1,5 +1,6 @@
 import os
 from typing import Literal
+import urllib.parse
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -11,18 +12,17 @@ class BaseConfig(BaseSettings):
     EMBEDDING_MODE: Literal["LOCAL", "CLOUD"] = "LOCAL"
     EMBEDDING_DIMENSION: int = 1536
     
-    # Infrastructure Core Secrets (Defaults fall back to local development parameters)
-    DB_USER: str = Field(default="postgres", alias="DB_USER")
-    DB_PASSWORD: str = Field(..., alias="DB_PASSWORD")
-    DB_HOST: str = Field(default="127.0.0.1", alias="DB_HOST")
-    DB_PORT: int = Field(default=5433, alias="DB_PORT")
-    DB_NAME: str = Field(default="vector_db", alias="DB_NAME")
+    # Infrastructure Core Secrets (Strict defaults aligned with standard Postgres)
+    DB_USER: str = Field(default="postgres")
+    DB_PASSWORD: str = Field(...) # Ellipsis means required, fails fast if missing
+    DB_HOST: str = Field(default="127.0.0.1")
+    DB_PORT: int = Field(default=5432) 
+    DB_NAME: str = Field(default="enterprise_rag_db")
     
-    GITHUB_TOKEN: str | None = Field(default=None, alias="GITHUB_TOKEN")
-    OPENAI_API_KEY: str | None = Field(default=None, alias="OPENAI_API_KEY")
-    HF_TOKEN: str | None = Field(default=None, alias="HF_TOKEN")
+    GITHUB_TOKEN: str | None = Field(default=None)
+    OPENAI_API_KEY: str | None = Field(default=None)
+    HF_TOKEN: str | None = Field(default=None)
 
-    # This property is dynamically assembled after field initialization
     SQLALCHEMY_DATABASE_URI: str | None = None
 
     @model_validator(mode="after")
@@ -33,8 +33,11 @@ class BaseConfig(BaseSettings):
         we compile it cleanly using the individual parameters.
         """
         if not self.SQLALCHEMY_DATABASE_URI:
+            # Safely encode the password to handle special characters like '@', '#', or '/'
+            encoded_password = urllib.parse.quote_plus(self.DB_PASSWORD)
+            
             self.SQLALCHEMY_DATABASE_URI = (
-                f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}"
+                f"postgresql://{self.DB_USER}:{encoded_password}"
                 f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
             )
         return self
@@ -42,24 +45,21 @@ class BaseConfig(BaseSettings):
 # --- Profile Configurations ---
 
 class DevelopmentConfig(BaseConfig):
-    APP_ENV: Literal["DEVELOPMENT"] = "DEVELOPMENT"
-    EMBEDDING_MODE: Literal["LOCAL"] = "LOCAL"
-    model_config = SettingsConfigDict(env_file=".env.development", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env.development", extra="ignore")
 
 class StagingConfig(BaseConfig):
-    APP_ENV: Literal["STAGING"] = "STAGING"
     EMBEDDING_MODE: Literal["CLOUD"] = "CLOUD"
-    # FIXED: Now looks explicitly for a staging configurations vault file
-    model_config = SettingsConfigDict(env_file=".env.staging", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env.staging", extra="ignore")
 
 class ProductionConfig(BaseConfig):
-    APP_ENV: Literal["PRODUCTION"] = "PRODUCTION"
     EMBEDDING_MODE: Literal["CLOUD"] = "CLOUD"
-    # Production relies entirely on secure container infrastructure/Secret Manager variable injection
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env.production", 
+        env_file_encoding="utf-8", 
+        extra="ignore"
+    )
 
 def get_settings() -> BaseConfig:
-    # Captures environment flags from the operating system host
     ambient_env = os.getenv("APP_ENV", "DEVELOPMENT").upper()
     if ambient_env == "PRODUCTION":
         return ProductionConfig()

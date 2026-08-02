@@ -12,7 +12,7 @@ def _is_file_already_processed(source_file: str) -> bool:
     Executes a fast query against the database to check if a document 
     has already been indexed, preventing redundant API calls and duplicate data.
     """
-    query = "SELECT 1 FROM sklearn_docs WHERE source_file = %s LIMIT 1;"
+    query = "SELECT 1 FROM enterprise_documents WHERE source_file = %s LIMIT 1;"
     try:
         conn = psycopg2.connect(settings.SQLALCHEMY_DATABASE_URI)
         cursor = conn.cursor()

@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 .env
 .env.production
-.env*
+.env.development
+.env.staging
 data_sandbox/
 .DS_Store
 demo.py

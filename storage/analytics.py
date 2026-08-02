@@ -7,12 +7,12 @@ def get_platform_status_metrics() -> Dict[str, Any]:
     conn = psycopg2.connect(settings.SQLALCHEMY_DATABASE_URI)
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT COUNT(*) FROM sklearn_docs;")
+        cursor.execute("SELECT COUNT(*) FROM enterprise_documents;")
         total_chunks = cursor.fetchone()[0]
         
         cursor.execute("""
             SELECT doc_format, COUNT(DISTINCT source_file), COUNT(*) 
-            FROM sklearn_docs 
+            FROM enterprise_documents 
             GROUP BY doc_format;
         """)
         distribution_rows = cursor.fetchall()

@@ -2,14 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Inject ONLY the frontend UI dependencies
+# Install UI dependencies
 COPY requirements-frontend.txt .
 RUN pip install --no-cache-dir -r requirements-frontend.txt
 
-# Copy the frontend Streamlit script
+# Copy frontend code
 COPY app_ui.py .
 
 EXPOSE 8501
 
-# Configure Streamlit to run safely inside headlessly bound environments
-CMD ["streamlit", "run", "app_ui.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+# Dynamic PORT handling for Streamlit (defaults to 8501 locally, adapts if hosted on serverless platforms)
+CMD ["sh", "-c", "streamlit run app_ui.py --server.port ${PORT:-8501} --server.address 0.0.0.0"]

@@ -1,9 +1,9 @@
 services:
-  # Staging Database Service running pgvector natively
   staging-db:
     image: pgvector/pgvector:pg16
     container_name: staging-rag-db
     ports:
+      # Host:Container. Access from your laptop via 5434, but internal network uses 5432
       - "5434:5432"
     env_file:
       - .env.staging
@@ -13,14 +13,12 @@ services:
       - POSTGRES_DB=${DB_NAME}
     volumes:
       - staging_db_data:/var/lib/postgresql/data
-    # NEW: Healthcheck prevents the backend from crashing during database bootup
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Backend Core API Service
   backend-api:
     build:
       context: .
@@ -32,17 +30,14 @@ services:
       - .env.staging
     environment:
       - APP_ENV=STAGING
-      - DB_HOST=${DOCKER_DB_HOST}
-      - DB_PORT=${DOCKER_DB_PORT}
+      - DB_HOST=staging-db # Overrides default 127.0.0.1 to use Docker network DNS
+      - DB_PORT=5432       # Uses standard internal port
     volumes:
-      # NEW: Bind mount links your physical sandbox folder directly to the container
       - ./data_sandbox:/app/data_sandbox
     depends_on:
-      # NEW: Forces the backend to wait until PostgreSQL passes its healthcheck
       staging-db:
         condition: service_healthy
 
-  # Frontend Dashboard Interface Service
   frontend-ui:
     build:
       context: .
