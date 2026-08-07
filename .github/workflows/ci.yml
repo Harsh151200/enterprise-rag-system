@@ -35,8 +35,9 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.11"
-        cache: 'pip' # Caches dependencies to make future runs much faster
-
+        cache: 'pip' 
+        cache-dependency-path: 'requirements-backend.txt' # NEW: Tells GitHub exactly which file to cache
+        
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
