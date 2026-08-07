@@ -7,7 +7,7 @@ def test_development_config_defaults():
     settings = get_settings()
     
     assert isinstance(settings, DevelopmentConfig)
-    assert settings.DB_PORT == 5433
+    assert settings.DB_PORT == 5432
     assert settings.DB_NAME == "enterprise_rag_db"
 
 def test_password_url_encoding():
