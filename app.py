@@ -1,50 +1,81 @@
-import uvicorn
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-# Import our Phase 4 RAG engine
+# import sys
+from fastapi import FastAPI, BackgroundTasks, HTTPException, status, Depends, Security
+from fastapi.security import APIKeyHeader
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List
+from core.config import settings
+from components.embedder import run_production_ingestion_pipeline
 from components.orchestrator import generate_rag_response
+from storage.analytics import get_platform_status_metrics, get_historical_pipeline_logs
 
+app = FastAPI(title="Enterprise RAG Core Service Platform", version="3.0.0-alpha.4")
 
-# 1. Initialize the FastAPI Application
-app = FastAPI(
-    title="Enterprise Generative AI Retrieval API",
-    description="Production-grade RAG endpoint serving scikit-learn verified technical documentation.",
-    version="1.0.0"
-)
+# --- SECURITY MIDDLEWARE ---
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 
-# 2. Define the expected incoming JSON schema using Pydantic
-class QueryRequest(BaseModel):
-    question: str
-
-# 3. Define the structural outgoing JSON response schema
-class QueryResponse(BaseModel):
-    question: str
-    answer: str
-
-# 4. Create an operational health-check endpoint (Standard enterprise practice)
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "database_gateway": "online"}
-
-# 5. Create the primary POST endpoint for RAG queries
-@app.post("/api/v1/query", response_model=QueryResponse)
-async def query_rag_system(payload: QueryRequest):
-    if not payload.question.strip():
-        raise HTTPException(status_code=400, detail="Question payload cannot be empty.")
-        
-    try:
-        print(f"API Gateway: Received web query request: '{payload.question}'")
-        # Trigger the orchestrator loop
-        ai_response = generate_rag_response(payload.question)
-        
-        return QueryResponse(
-            question=payload.question,
-            answer=ai_response
+def verify_api_key(api_key: str = Security(api_key_header)):
+    """Validates the incoming X-API-Key header against the environment contract."""
+    if api_key != settings.API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key",
         )
-    except Exception as e:
-        print(f"API Internal Server Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal orchestration processing failure.")
+    return api_key
+# ---------------------------
 
-if __name__ == "__main__":
-    # Standard local hosting configurations
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+class QueryRequest(BaseModel):
+    question: str = Field(..., description="The query string to evaluate")
+
+class IngestRequest(BaseModel):
+    source_type: str = Field(..., description="The retrieval connector channel mechanism ('local' or 'web')")
+    target_path: str = Field(..., description="The folder location path or seed URL target node")
+    limit: Optional[int] = Field(None, description="Optional pluggable resource limit")
+    batch_size: int = Field(50, description="The memory buffer limit used during batch vector mapping")
+
+# The health endpoint remains unprotected so GCP load balancers can verify container status
+@app.get("/health", status_code=status.HTTP_200_OK)
+def system_health_check() -> Dict[str, str]:
+    return {"status": "healthy", "environment": settings.APP_ENV}
+
+# ALL subsequent endpoints now require the `verify_api_key` dependency
+@app.get("/api/v1/status", status_code=status.HTTP_200_OK, dependencies=[Depends(verify_api_key)])
+def get_repository_status() -> Dict[str, Any]:
+    """Exposes aggregated storage status array statistics by consuming the unified analytics layer."""
+    try:
+        return get_platform_status_metrics()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/logs", status_code=status.HTTP_200_OK, dependencies=[Depends(verify_api_key)])
+def get_pipeline_audit_logs() -> List[Dict[str, Any]]:
+    """Returns historical execution parameters pulled directly from the audit ledger rows."""
+    try:
+        return get_historical_pipeline_logs(limit=10)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/query", status_code=status.HTTP_200_OK, dependencies=[Depends(verify_api_key)])
+def process_hybrid_query(payload: QueryRequest) -> Dict[str, Any]:
+    """Processes search queries and returns structured answer and citation arrays."""
+    try:
+        result = generate_rag_response(user_query=payload.question)
+        return {
+            "query": payload.question, 
+            "answer": result["answer"], 
+            "citations": result["citations"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/ingest", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)])
+def trigger_pipeline_ingestion(payload: IngestRequest, background_tasks: BackgroundTasks) -> Dict[str, str]:
+    try:
+        background_tasks.add_task(
+            run_production_ingestion_pipeline,
+            source_type=payload.source_type, target_path=payload.target_path,
+            embedding_batch_size=payload.batch_size, max_resources=payload.limit
+        )
+        return {"status": "accepted", "message": "Pipeline routine scheduled into worker threads successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

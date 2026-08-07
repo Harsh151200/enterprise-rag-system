@@ -1,112 +1,95 @@
-import os
 import psycopg2
-from openai import OpenAI
-from dotenv import load_dotenv
-import random
+from core.config import settings
+from components.embedding_provider import embedding_engine
+from storage.db_pool import db_pool
 
-# Check an environmental flag set by your terminal (defaulting to local development)
-app_env = os.getenv("APP_ENV", "development")
-
-# Dynamically route the runtime configurations file path
-if app_env == "production":
-    load_dotenv(".env.production")
-    print("[CONFIG]: System successfully bound to PRODUCTION environment.")
-else:
-    load_dotenv(".env")
-    print("[CONFIG]: System successfully bound to LOCAL DEVELOPMENT environment.")
-
-def get_query_embedding(query_text):
-    """Converts the user's plain text query into a 1536-dimensional vector using live MRL truncation."""
-    github_token = os.getenv("GITHUB_TOKEN")
-    base_url = os.getenv("LLM_BASE_URL", "https://models.inference.ai.azure.com")
-
-    if github_token and not github_token.startswith("ghp_YOUR_"):
-        try:
-            # Connect standard OpenAI SDK client directly to GitHub's inference cloud
-            client = OpenAI(base_url=base_url, api_key=github_token)
-            
-            # Using text-embedding-3-large truncated down to 1536 dimensions
-            response = client.embeddings.create(
-                input=[query_text],
-                model="text-embedding-3-large",
-                dimensions=1536
-            )
-            return response.data[0].embedding
-        except Exception as e:
-            print(f"GitHub Models Embedding API Error: {e}")
-            return None
-    else:
-        print("Critical Error: GITHUB_TOKEN not configured in .env.production. Using fallback deterministic random embedding for development purposes.")
-        
-        # Uses a deterministic hash of the text so searching the same phrase yields the same vector
-        # Comment this section when fully developed and connected to the live embedding API.
-        random.seed(int(abs(hash(query_text)) % 1e7))
-
-        return [random.uniform(-1, 1) for _ in range(1536)]
-    
-        # return false
-    
-
-def semantic_search(query_text, top_k=3):
-    """Queries Postgres using pgvector to find relevant context along with file metadata."""
-    query_vector = get_query_embedding(query_text)
-
-    if not query_vector:
-        print("Could not generate embedding for query.")
+def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -> list[dict]:
+    """
+    Executes a parallel hybrid search across both full-text keywords and 
+    dense vector embedding dimensions within a single PostgreSQL query transaction,
+    blending results via a database-calculated Reciprocal Rank Fusion (RRF) algorithm.
+    """
+    # 1. Generate spatial coordinates from the user query string
+    try:
+        query_vector = embedding_engine.embed_text(user_query)
+    except Exception as e:
+        print(f"[RETRIEVAL ERROR] Failed to compute spatial vector representation: {e}")
         return []
 
-    print(f"Executing live vector search for: '{query_text}'")
+    # Calculate a wider candidate window to give both search strategies room to blend
+    candidate_limit = top_k * oversample_factor
 
-    # Extract database credentials
-    db_host = os.getenv("DB_HOST")
-    db_port = os.getenv("DB_PORT")
-    db_name = os.getenv("DB_NAME")
-    db_user = os.getenv("DB_USER")
-    db_password = os.getenv("DB_PASSWORD")
-    
-    try:
-        conn = psycopg2.connect(
-            host=db_host,
-            port=db_port,
-            database=db_name,
-            user=db_user,
-            password=db_password
+    # 2. Unified Dual-Strategy CTE RRF Query Construction
+    rrf_query = """
+        WITH vector_search AS (
+            SELECT id, 
+                   ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector) AS rank
+            FROM enterprise_documents
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+        ),
+        fts_search AS (
+            SELECT id, 
+                   ROW_NUMBER() OVER (ORDER BY ts_rank_cd(text_vector, plainto_tsquery('english', %s)) DESC) AS rank
+            FROM enterprise_documents
+            WHERE text_vector @@ plainto_tsquery('english', %s)
+            ORDER BY ts_rank_cd(text_vector, plainto_tsquery('english', %s)) DESC
+            LIMIT %s
         )
+        SELECT 
+            d.text_content, 
+            d.source_file, 
+            d.doc_format, 
+            d.chunk_index,
+            COALESCE(1.0 / (60.0 + v.rank), 0.0) + COALESCE(1.0 / (60.0 + f.rank), 0.0) AS rrf_score
+        FROM enterprise_documents d
+        LEFT JOIN vector_search v ON d.id = v.id
+        LEFT JOIN fts_search f ON d.id = f.id
+        WHERE v.id IS NOT NULL OR f.id IS NOT NULL
+        ORDER BY rrf_score DESC
+        LIMIT %s;
+    """
+
+    # 3. Transaction Execution Block (Now using Connection Pooling)
+    try:
+        conn = db_pool.getconn()
         cursor = conn.cursor()
+
+        # Safely map parameter values directly to query placeholders
+        query_parameters = (
+            query_vector,       # vector_search window order parameter
+            query_vector,       # vector_search sorting parameter
+            candidate_limit,    # vector_search depth limit
+            user_query,         # fts_search lexeme translation parsing target
+            user_query,         # fts_search indexing lookup operator target
+            user_query,         # fts_search dense ranking compilation parameter
+            candidate_limit,    # fts_search depth limit
+            top_k               # Final blended destination limit returning to caller
+        )
+
+        cursor.execute(rrf_query, query_parameters)
+        raw_database_rows = cursor.fetchall()
+
+        # 4. Standardized Output Compilation
+        compiled_results = [
+            {
+                "text": row[0],
+                "source": row[1],
+                "format": row[2],
+                "chunk_index": row[3],
+                "rrf_score": float(row[4])
+            }
+            for row in raw_database_rows
+        ]
+
+        print(f"[RETRIEVAL] Hybrid search completed successfully. Total results returned: {len(compiled_results)}")
         
-        # Core query: Extract text_content AND the new source_file metadata column
-        search_query = """
-            SELECT id, text_content, source_file, embedding <=> %s::vector AS cosine_distance 
-            FROM sklearn_docs 
-            ORDER BY cosine_distance ASC 
-            LIMIT %s;
-        """
-        
-        cursor.execute(search_query, (query_vector, top_k))
-        results = cursor.fetchall()
-        
-        print(f"Retrieved Top-{len(results)} semantically close documentation chunks.\n")
-        
-        retrieved_contexts = []
-        for row in results:
-            chunk_id, text, source_file, distance = row
-            print(f" ──► [Chunk ID: {chunk_id}] [Source: {source_file}] (Distance: {distance:.4f})")
-            
-            # Pack as structured dictionary payloads so the orchestrator can separate context from citations
-            retrieved_contexts.append({
-                "text": text,
-                "source": source_file
-            })
-            
-        return retrieved_contexts
+        return compiled_results
 
     except Exception as e:
-        print(f"Database Search Failure: {e}")
+        print(f"[RETRIEVAL ERROR] Parallel hybrid search matrix transaction collapsed: {e}")
         return []
     finally:
         if 'cursor' in locals(): cursor.close()
-        if 'conn' in locals(): conn.close()
-
-if __name__ == "__main__":
-    sample_prompt = input("Enter a search query to test the upgraded retrieval core: ")
-    semantic_search(sample_prompt, top_k=3)
+        # Ensure the connection is returned to the pool even if an error occurs!
+        if 'conn' in locals(): db_pool.putconn(conn)

@@ -20,3 +20,27 @@ variable "github_token" {
   sensitive   = true
   description = "The live GitHub Models authorization token used by the RAG orchestrator"
 }
+
+variable "db_user" {
+  type        = string
+  default     = "postgres"
+  description = "Standard database user aligned with env contract"
+}
+
+variable "db_name" {
+  type        = string
+  default     = "enterprise_rag_db"
+  description = "Standard database name aligned with env contract"
+}
+
+variable "app_env" {
+  type        = string
+  default     = "PRODUCTION"
+  description = "The explicit runtime environment for the FastAPI backend"
+}
+
+variable "api_key" {
+  type        = string
+  sensitive   = true
+  description = "The core X-API-Key used to authenticate requests to the FastAPI backend"
+}
