@@ -1,12 +1,11 @@
-import psycopg2
 from typing import Dict, Any, List
-from core.config import settings
+from storage.db_pool import db_pool
 
 def get_platform_status_metrics() -> Dict[str, Any]:
     """Queries the database to compile chunk distribution metrics across data formats."""
-    conn = psycopg2.connect(settings.SQLALCHEMY_DATABASE_URI)
-    cursor = conn.cursor()
+    conn = db_pool.getconn()
     try:
+        cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM enterprise_documents;")
         total_chunks = cursor.fetchone()[0]
         
@@ -31,14 +30,14 @@ def get_platform_status_metrics() -> Dict[str, Any]:
             "formats_distribution": format_summary
         }
     finally:
-        cursor.close()
-        conn.close()
+        if 'cursor' in locals(): cursor.close()
+        db_pool.putconn(conn) # Return connection to the pool
 
 def get_historical_pipeline_logs(limit: int = 10) -> List[Dict[str, Any]]:
     """Retrieves execution records directly from the pipeline_runs table for UI rendering."""
-    conn = psycopg2.connect(settings.SQLALCHEMY_DATABASE_URI)
-    cursor = conn.cursor()
+    conn = db_pool.getconn()
     try:
+        cursor = conn.cursor()
         cursor.execute("""
             SELECT run_id, pipeline_name, environment, status, 
                    records_extracted, records_transformed, records_indexed, 
@@ -65,5 +64,5 @@ def get_historical_pipeline_logs(limit: int = 10) -> List[Dict[str, Any]]:
             })
         return logs
     finally:
-        cursor.close()
-        conn.close()
+        if 'cursor' in locals(): cursor.close()
+        db_pool.putconn(conn)

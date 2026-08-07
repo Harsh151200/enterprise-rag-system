@@ -1,6 +1,7 @@
 import psycopg2
 from core.config import settings
 from components.embedding_provider import embedding_engine
+from storage.db_pool import db_pool
 
 def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -> list[dict]:
     """
@@ -49,9 +50,9 @@ def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -
         LIMIT %s;
     """
 
-    # 3. Transaction Execution Block
+    # 3. Transaction Execution Block (Now using Connection Pooling)
     try:
-        conn = psycopg2.connect(settings.SQLALCHEMY_DATABASE_URI)
+        conn = db_pool.getconn()
         cursor = conn.cursor()
 
         # Safely map parameter values directly to query placeholders
@@ -65,8 +66,6 @@ def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -
             candidate_limit,    # fts_search depth limit
             top_k               # Final blended destination limit returning to caller
         )
-
-        # print(rrf_query, query_parameters)
 
         cursor.execute(rrf_query, query_parameters)
         raw_database_rows = cursor.fetchall()
@@ -92,4 +91,5 @@ def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -
         return []
     finally:
         if 'cursor' in locals(): cursor.close()
-        if 'conn' in locals(): conn.close()
+        # Ensure the connection is returned to the pool even if an error occurs!
+        if 'conn' in locals(): db_pool.putconn(conn)
