@@ -18,7 +18,7 @@ resource "google_project_service" "services" {
 }
 
 # =========================================================================
-# SECRETS MANAGEMENT LAYER (NEW)
+# SECRETS MANAGEMENT LAYER
 # =========================================================================
 
 # 1. Vault for Database Password
@@ -47,6 +47,27 @@ resource "google_secret_manager_secret" "github_token" {
 resource "google_secret_manager_secret_version" "github_token_version" {
   secret      = google_secret_manager_secret.github_token.id
   secret_data = var.github_token
+}
+
+# Vault for ap-key authentication
+resource "google_secret_manager_secret" "api_key" {
+  secret_id = "rag-api-key"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.services]
+}
+
+resource "google_secret_manager_secret_version" "api_key_version" {
+  secret      = google_secret_manager_secret.api_key.id
+  secret_data = var.api_key
+}
+
+# Grant Cloud Run access to the API key vault
+resource "google_secret_manager_secret_iam_member" "api_key_access" {
+  secret_id = google_secret_manager_secret.api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
 
 # =========================================================================
@@ -207,7 +228,7 @@ resource "google_cloud_run_v2_service" "api_service" {
     }
 
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v3.0"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v3.1.3"
 
       # NEW: Grants enough RAM to hold PyTorch and SentenceTransformer in memory
       resources {
@@ -263,17 +284,15 @@ resource "google_cloud_run_v2_service" "api_service" {
           }
         }
       }
+      env {
+        name = "API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
     }
   }
-}
-
-# =========================================================================
-# SECURITY LAYER: IAM UNAUTHENTICATED ACCESS POLICY
-# =========================================================================
-
-resource "google_cloud_run_v2_service_iam_member" "public_access" {
-  name     = google_cloud_run_v2_service.api_service.name
-  location = google_cloud_run_v2_service.api_service.location
-  role     = "roles/run.invoker"
-  member   = "allUsers"
 }

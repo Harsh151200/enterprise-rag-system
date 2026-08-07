@@ -1,5 +1,6 @@
-import sys
-from fastapi import FastAPI, BackgroundTasks, HTTPException, status
+# import sys
+from fastapi import FastAPI, BackgroundTasks, HTTPException, status, Depends, Security
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from core.config import settings
@@ -8,6 +9,20 @@ from components.orchestrator import generate_rag_response
 from storage.analytics import get_platform_status_metrics, get_historical_pipeline_logs
 
 app = FastAPI(title="Enterprise RAG Core Service Platform", version="3.0.0-alpha.4")
+
+# --- SECURITY MIDDLEWARE ---
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+
+def verify_api_key(api_key: str = Security(api_key_header)):
+    """Validates the incoming X-API-Key header against the environment contract."""
+    if api_key != settings.API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key",
+        )
+    return api_key
+# ---------------------------
 
 class QueryRequest(BaseModel):
     question: str = Field(..., description="The query string to evaluate")
@@ -18,11 +33,13 @@ class IngestRequest(BaseModel):
     limit: Optional[int] = Field(None, description="Optional pluggable resource limit")
     batch_size: int = Field(50, description="The memory buffer limit used during batch vector mapping")
 
+# The health endpoint remains unprotected so GCP load balancers can verify container status
 @app.get("/health", status_code=status.HTTP_200_OK)
 def system_health_check() -> Dict[str, str]:
     return {"status": "healthy", "environment": settings.APP_ENV}
 
-@app.get("/api/v1/status", status_code=status.HTTP_200_OK)
+# ALL subsequent endpoints now require the `verify_api_key` dependency
+@app.get("/api/v1/status", status_code=status.HTTP_200_OK, dependencies=[Depends(verify_api_key)])
 def get_repository_status() -> Dict[str, Any]:
     """Exposes aggregated storage status array statistics by consuming the unified analytics layer."""
     try:
@@ -30,7 +47,7 @@ def get_repository_status() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/v1/logs", status_code=status.HTTP_200_OK)
+@app.get("/api/v1/logs", status_code=status.HTTP_200_OK, dependencies=[Depends(verify_api_key)])
 def get_pipeline_audit_logs() -> List[Dict[str, Any]]:
     """Returns historical execution parameters pulled directly from the audit ledger rows."""
     try:
@@ -38,7 +55,7 @@ def get_pipeline_audit_logs() -> List[Dict[str, Any]]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/query", status_code=status.HTTP_200_OK)
+@app.post("/api/v1/query", status_code=status.HTTP_200_OK, dependencies=[Depends(verify_api_key)])
 def process_hybrid_query(payload: QueryRequest) -> Dict[str, Any]:
     """Processes search queries and returns structured answer and citation arrays."""
     try:
@@ -51,7 +68,7 @@ def process_hybrid_query(payload: QueryRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/ingest", status_code=status.HTTP_202_ACCEPTED)
+@app.post("/api/v1/ingest", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(verify_api_key)])
 def trigger_pipeline_ingestion(payload: IngestRequest, background_tasks: BackgroundTasks) -> Dict[str, str]:
     try:
         background_tasks.add_task(

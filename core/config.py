@@ -18,10 +18,14 @@ class BaseConfig(BaseSettings):
     DB_HOST: str = Field(default="127.0.0.1")
     DB_PORT: int = Field(default=5432) 
     DB_NAME: str = Field(default="enterprise_rag_db")
-    
+
+    # External API KEYS
     GITHUB_TOKEN: str | None = Field(default=None)
     OPENAI_API_KEY: str | None = Field(default=None)
     HF_TOKEN: str | None = Field(default=None)
+
+    # Internal API Key for securing our endpoints
+    API_KEY: str = Field(default="dev-local-secret-key-123")
 
     SQLALCHEMY_DATABASE_URI: str | None = None
 

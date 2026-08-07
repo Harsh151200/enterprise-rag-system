@@ -38,3 +38,9 @@ variable "app_env" {
   default     = "PRODUCTION"
   description = "The explicit runtime environment for the FastAPI backend"
 }
+
+variable "api_key" {
+  type        = string
+  sensitive   = true
+  description = "The core X-API-Key used to authenticate requests to the FastAPI backend"
+}
