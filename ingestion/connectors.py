@@ -6,33 +6,24 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from ingestion.base import BaseConnector
 
-# The same blocklist you used in your IngestionPipeline
 FORBIDDEN_URL_EXTENSIONS = {
     ".zip", ".tar", ".gz", ".rar", ".7z", 
     ".exe", ".bin", ".whl", ".pyc", 
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico"
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".mp4", ".mp3", ".wav"
 }
 
+# Match the pipeline limit
+MAX_DOWNLOAD_SIZE_BYTES = 10 * 1024 * 1024 
+
 def is_crawlable_url(url: str) -> bool:
-    """
-    Analyzes a URL and returns False if it points to a binary or archive file.
-    """
-    # Parse the URL to safely isolate the path (ignores query parameters like ?id=123)
     parsed_url = urlparse(url)
-    
-    # Extract the extension from the path (e.g., '/stable/auto_examples.zip' -> '.zip')
     ext = os.path.splitext(parsed_url.path)[1].lower()
-    
     if ext in FORBIDDEN_URL_EXTENSIONS:
         return False
-        
     return True
 
 class LocalDirectoryConnector(BaseConnector):
-    """
-    Recursively scans and streams raw bytes from local file system
-    directories using generators to maintain a minimal memory footprint.
-    """
+    # (Keep your existing LocalDirectoryConnector logic exactly as it is)
     def __init__(self, directory_path: str, allowed_extensions: List[str] = None):
         self.directory_path = directory_path
         self.allowed_extensions = allowed_extensions or [
@@ -40,12 +31,10 @@ class LocalDirectoryConnector(BaseConnector):
         ]
 
     def fetch(self, source_uri: str) -> bytes:
-        """Reads raw binary bytes from a single local file path."""
         with open(source_uri, "rb") as f:
             return f.read()
 
     def fetch_all(self) -> Generator[Dict[str, Any], None, None]:
-        """Scans the targeted directory structure and yields raw file objects sequentially."""
         if not os.path.exists(self.directory_path):
             print(f"[ERROR] Specified directory path does not exist: {self.directory_path}")
             return
@@ -61,12 +50,7 @@ class LocalDirectoryConnector(BaseConnector):
                     except Exception as e:
                         print(f"[ERROR] Skipping file due to extraction failure on {file_path}: {e}")
 
-
 class DynamicWebCrawlerConnector(BaseConnector):
-    """
-    Manages link discovery, scope enforcement, and recursive tree 
-    traversal to ingest remote web pages as raw byte strings.
-    """
     def __init__(self, seed_url: str, domain_lock: str, path_filter: str, max_pages: int = 50):
         self.seed_url = seed_url
         self.domain_lock = domain_lock
@@ -77,25 +61,44 @@ class DynamicWebCrawlerConnector(BaseConnector):
         self.url_queue: List[str] = [seed_url]
 
     def _clean_url(self, url: str) -> str:
-        """Strips fragment hashes to maintain unique lookup strings."""
         return url.split('#')[0]
 
     def fetch(self, source_uri: str) -> bytes:
-        """Executes a single synchronous HTTP GET request to capture remote raw bytes."""
+        """Executes an HTTP request with streaming to prevent OOM on massive files."""
         try:
-            response = requests.get(source_uri, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                return response.content
-            return b""
-        except Exception as e:
+            # NEW GUARDRAIL 3: HTTP Streaming and Header Inspection
+            with requests.get(source_uri, headers=self.headers, stream=True, timeout=10) as response:
+                if response.status_code != 200:
+                    return b""
+                
+                # Check Content-Type to avoid downloading video/audio/binaries secretly lacking extensions
+                content_type = response.headers.get('Content-Type', '').lower()
+                if any(bad_type in content_type for bad_type in ['video/', 'audio/', 'image/', 'application/zip', 'application/x-executable']):
+                    print(f"[GUARDRAIL BLOCK] Rejected forbidden MIME type ({content_type}): {source_uri}")
+                    return b""
+
+                # Check Content-Length if the server provides it
+                content_length = response.headers.get('Content-Length')
+                if content_length and int(content_length) > MAX_DOWNLOAD_SIZE_BYTES:
+                    print(f"[GUARDRAIL BLOCK] Server reported payload exceeds 10MB limit: {source_uri}")
+                    return b""
+
+                # If the server hides Content-Length, we download in chunks and break if it gets too large
+                downloaded_bytes = b""
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        downloaded_bytes += chunk
+                        if len(downloaded_bytes) > MAX_DOWNLOAD_SIZE_BYTES:
+                            print(f"[GUARDRAIL BLOCK] Streamed payload exceeded 10MB limit. Aborting: {source_uri}")
+                            return b""
+                            
+                return downloaded_bytes
+                
+        except requests.exceptions.RequestException as e:
             print(f"[ERROR] HTTP connection dropped for URL {source_uri}: {e}")
             return b""
 
     def crawl_tree(self) -> Generator[Dict[str, Any], None, None]:
-        """
-        Traverses the web network graph recursively up to boundary limits
-        and yields discovered documents one by one.
-        """
         print(f"[INFO] Initializing tree traversal crawling on root node: {self.seed_url}")
         
         while self.url_queue and len(self.visited_urls) < self.max_pages:
@@ -109,10 +112,8 @@ class DynamicWebCrawlerConnector(BaseConnector):
             if not raw_bytes:
                 continue
 
-            # Yield the network payload immediately before processing child branches
             yield {"source": current_url, "bytes": raw_bytes}
 
-            # Discover anchor tags to expand the tree queue
             try:
                 soup = BeautifulSoup(raw_bytes, "lxml")
                 for anchor in soup.find_all("a", href=True):

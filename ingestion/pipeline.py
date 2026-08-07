@@ -7,6 +7,9 @@ from ingestion.parsers import (
     ExcelParser, PPTXParser, XMLAndCodeParser
 )
 
+# NEW: Strict 10MB memory limit per file to prevent Cloud Run OOM kills
+MAX_PAYLOAD_SIZE_BYTES = 10 * 1024 * 1024 
+
 class IngestionPipeline:
     """
     The main coordinator that manages data routing through 
@@ -34,7 +37,7 @@ class IngestionPipeline:
             ".yml": XMLAndCodeParser()
         }
 
-        # NEW: Explicit list of binary/archive formats to drop immediately
+        # Explicit list of binary/archive formats to drop immediately
         self.forbidden_extensions = {
             ".zip", ".tar", ".gz", ".rar", ".7z", 
             ".exe", ".bin", ".whl", ".pyc", ".png", ".jpg", ".jpeg", ".gif"
@@ -64,7 +67,6 @@ class IngestionPipeline:
     def _resolve_parser(self, file_path: str):
         """Looks up the correct parser instance based on the file extension."""
         ext = os.path.splitext(file_path)[1].lower()
-        # Fall back gracefully to the TXTParser engine if extension is unrecognized
         return self.parser_registry.get(ext, self.parser_registry[".txt"])
 
     def process_file(self, source_uri: str, raw_bytes: bytes) -> List[Dict[str, Any]]:
@@ -76,10 +78,15 @@ class IngestionPipeline:
             print(f"[WARN] Received empty byte payload for source: {source_uri}")
             return []
 
-        # NEW: Intercept and drop forbidden file types instantly
+        # NEW GUARDRAIL 1: Payload Size Enforcement
+        if len(raw_bytes) > MAX_PAYLOAD_SIZE_BYTES:
+            print(f"[GUARDRAIL BLOCK] File exceeds 10MB memory limit. Dropping: {source_uri}")
+            return []
+
+        # GUARDRAIL 2: Extension Blocking
         ext = os.path.splitext(source_uri)[1].lower()
         if ext in self.forbidden_extensions:
-            print(f"[INGESTION] Skipping unsupported binary/archive file: {source_uri}")
+            print(f"[GUARDRAIL BLOCK] Skipping unsupported binary/archive file: {source_uri}")
             return []
 
         # 1. Deduplication Verification Phase
@@ -92,7 +99,6 @@ class IngestionPipeline:
         parser_engine = self._resolve_parser(source_uri)
         try:
             extracted_doc = parser_engine.parse(raw_bytes, source_uri)
-            # Sanitize NUL characters from parsed document fields before transformation
             extracted_doc = self._sanitize_extracted_doc(extracted_doc)
         except Exception as parser_error:
             print(f"[ERROR] Ingestion parser crashed on asset {source_uri}: {parser_error}")
@@ -101,8 +107,6 @@ class IngestionPipeline:
         # 3. Transform Phase (Semantic Slicing and Ordering Assignment)
         try:
             chunk_records = self.transformer.transform(extracted_doc)
-            
-            # Post-chunking safeguard: Clean all string key/value pairs inside chunk records
             for chunk in chunk_records:
                 for key, val in chunk.items():
                     if isinstance(val, str):
