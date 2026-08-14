@@ -44,3 +44,14 @@ variable "api_key" {
   sensitive   = true
   description = "The core X-API-Key used to authenticate requests to the FastAPI backend"
 }
+
+variable "iap_client_id" {
+  type        = string
+  description = "The OAuth Client ID for Google Identity-Aware Proxy"
+}
+
+variable "iap_client_secret" {
+  type        = string
+  sensitive   = true
+  description = "The OAuth Client Secret for Google Identity-Aware Proxy"
+}

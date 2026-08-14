@@ -6,6 +6,10 @@ import pandas as pd
 # Fall back to localhost only if running outside of Docker
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8000")
 
+# NEW: Grab the API key and set up the global headers payload
+API_KEY = os.getenv("API_KEY", "missing_key")
+AUTH_HEADERS = {"X-API-Key": API_KEY}
+
 st.set_page_config(
     page_title="Enterprise RAG Management Console",
     layout="wide",
@@ -66,6 +70,7 @@ with tab_chat:
                 api_payload = {"question": user_query}
                 backend_response = requests.post(
                     f"{BACKEND_API_URL}/api/v1/query",
+                    headers=AUTH_HEADERS,
                     json=api_payload,
                     timeout=30
                 )
@@ -102,7 +107,7 @@ with tab_admin:
     
     # 1. Fetch live repository data distribution maps
     try:
-        status_response = requests.get(f"{BACKEND_API_URL}/api/v1/status", timeout=3)
+        status_response = requests.get(f"{BACKEND_API_URL}/api/v1/status", headers=AUTH_HEADERS, timeout=3)
         if status_response.status_code == 200:
             metrics = status_response.json()
             
@@ -155,6 +160,7 @@ with tab_admin:
             trigger_response = requests.post(
                 f"{BACKEND_API_URL}/api/v1/ingest",
                 json=ingest_payload,
+                headers=AUTH_HEADERS,
                 timeout=5
             )
             
@@ -173,7 +179,7 @@ with tab_admin:
         st.rerun()
         
     try:
-        logs_response = requests.get(f"{BACKEND_API_URL}/api/v1/logs", timeout=3)
+        logs_response = requests.get(f"{BACKEND_API_URL}/api/v1/logs", headers=AUTH_HEADERS, timeout=3)
         if logs_response.status_code == 200:
             logs_array = logs_response.json()
             if logs_array:

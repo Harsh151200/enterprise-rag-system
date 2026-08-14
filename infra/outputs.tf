@@ -17,3 +17,13 @@ output "production_api_url" {
   value       = google_cloud_run_v2_service.api_service.uri
   description = "The live public production URL endpoint assigned to your serverless FastAPI RAG framework"
 }
+
+output "frontend_url" {
+  description = "The public URL for the Streamlit UI"
+  value       = google_cloud_run_v2_service.frontend_service.uri
+}
+
+output "load_balancer_ip" {
+  description = "The Public IP of the Global Load Balancer. Point your domain's DNS A-Record here."
+  value       = google_compute_global_forwarding_rule.iap_forwarding_rule.ip_address
+}

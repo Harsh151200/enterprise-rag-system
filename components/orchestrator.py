@@ -38,9 +38,9 @@ def generate_rag_response(user_query: str) -> Dict[str, Any]:
                 
         context_str = "\n\n--- DOCUMENTATION CHUNK ---\n".join(context_blocks)
 
-        print("\n[DEBUG] --- EXACT CONTEXT SENT TO LLM ---")
-        print(context_str)
-        print("[DEBUG] -----------------------------------\n")
+        # print("\n[DEBUG] --- EXACT CONTEXT SENT TO LLM ---")
+        # print(context_str)
+        # print("[DEBUG] -----------------------------------\n")
 
     # 2. Formulate the strict grounding System Prompt
     system_prompt = (
@@ -68,10 +68,12 @@ def generate_rag_response(user_query: str) -> Dict[str, Any]:
     api_key = settings.OPENAI_API_KEY or settings.GITHUB_TOKEN
     
     # Check if we are running in GitHub Models proxy mode or direct OpenAI mode
-    base_url = "https://models.inference.ai.azure.com" if settings.GITHUB_TOKEN and not settings.OPENAI_API_KEY else None
+    base_url = "https://models.github.ai/inference" if settings.GITHUB_TOKEN and not settings.OPENAI_API_KEY else None
     chat_model = "gpt-4o-mini"
 
     print(f"\nOrchestrator Step 2: Routing grounded payload matrix to cloud [Mode: {settings.APP_ENV}]...")
+    print(base_url)
+    print(api_key)
 
     if not api_key:
         return {
