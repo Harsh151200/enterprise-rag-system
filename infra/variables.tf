@@ -15,10 +15,10 @@ variable "db_password" {
   description = "The administrative root user password for Google Cloud SQL"
 }
 
-variable "github_token" {
+variable "openai_api_key" {
+  description = "The OpenAI API Key for LLM orchestration"
   type        = string
   sensitive   = true
-  description = "The live GitHub Models authorization token used by the RAG orchestrator"
 }
 
 variable "db_user" {
@@ -43,4 +43,15 @@ variable "api_key" {
   type        = string
   sensitive   = true
   description = "The core X-API-Key used to authenticate requests to the FastAPI backend"
+}
+
+variable "iap_client_id" {
+  type        = string
+  description = "The OAuth Client ID for Google Identity-Aware Proxy"
+}
+
+variable "iap_client_secret" {
+  type        = string
+  sensitive   = true
+  description = "The OAuth Client Secret for Google Identity-Aware Proxy"
 }

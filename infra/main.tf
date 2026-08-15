@@ -10,7 +10,8 @@ resource "google_project_service" "services" {
     "artifactregistry.googleapis.com", 
     "servicenetworking.googleapis.com", 
     "vpcaccess.googleapis.com",
-    "secretmanager.googleapis.com"     # NEW: Activates the Secret Manager API
+    "secretmanager.googleapis.com",
+    "iap.googleapis.com"
   ])
 
   service            = each.key
@@ -35,18 +36,18 @@ resource "google_secret_manager_secret_version" "db_password_version" {
   secret_data = var.db_password
 }
 
-# 2. Vault for GitHub Models Token
-resource "google_secret_manager_secret" "github_token" {
-  secret_id = "rag-github-token"
+# 2. Vault for OpenAI API Key
+resource "google_secret_manager_secret" "openai_api_key" {
+  secret_id = "rag-openai-api-key"
   replication {
     auto {}
   }
   depends_on = [google_project_service.services]
 }
 
-resource "google_secret_manager_secret_version" "github_token_version" {
-  secret      = google_secret_manager_secret.github_token.id
-  secret_data = var.github_token
+resource "google_secret_manager_secret_version" "openai_api_key_version" {
+  secret      = google_secret_manager_secret.openai_api_key.id
+  secret_data = var.openai_api_key
 }
 
 # Vault for ap-key authentication
@@ -87,9 +88,9 @@ resource "google_secret_manager_secret_iam_member" "db_pwd_access" {
   member    = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
 
-# Grants the Cloud Run identity permission to read the GitHub token vault
-resource "google_secret_manager_secret_iam_member" "gh_token_access" {
-  secret_id = google_secret_manager_secret.github_token.id
+# Grants the Cloud Run identity permission to read the OpenAI API key vault
+resource "google_secret_manager_secret_iam_member" "openai_key_access" {
+  secret_id = google_secret_manager_secret.openai_api_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
@@ -210,6 +211,13 @@ resource "google_cloud_run_v2_service" "api_service" {
   location = var.gcp_region
   ingress  = "INGRESS_TRAFFIC_ALL" 
 
+  # Force Cloud Run to wait for IAM permissions before booting
+  depends_on = [
+    google_secret_manager_secret_iam_member.db_pwd_access,
+    google_secret_manager_secret_iam_member.openai_key_access,
+    google_secret_manager_secret_iam_member.api_key_access
+  ]
+
   template {
     # NEW: Binds the custom Service Account to this container
     service_account = google_service_account.cloudrun_sa.email
@@ -228,13 +236,13 @@ resource "google_cloud_run_v2_service" "api_service" {
     }
 
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v3.1.3"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v4.1"
 
       # NEW: Grants enough RAM to hold PyTorch and SentenceTransformer in memory
       resources {
         limits = {
-          memory = "2Gi"
-          cpu    = "2"
+          memory = "4Gi"
+          cpu    = "4"
         }
       }
 
@@ -276,10 +284,10 @@ resource "google_cloud_run_v2_service" "api_service" {
         }
       }
       env {
-        name = "GITHUB_TOKEN"
+        name = "OPENAI_API_KEY"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.github_token.secret_id
+            secret  = google_secret_manager_secret.openai_api_key.secret_id
             version = "latest"
           }
         }
@@ -295,4 +303,153 @@ resource "google_cloud_run_v2_service" "api_service" {
       }
     }
   }
+}
+
+# =========================================================================
+# COMPUTE LAYER: SERVERLESS FRONTEND (STREAMLIT UI)
+# =========================================================================
+
+resource "google_cloud_run_v2_service" "frontend_service" {
+  name     = "enterprise-rag-frontend"
+  location = var.gcp_region
+  ingress  = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+
+  template {
+    # Bind the same service account so it can access the API_KEY secret
+    service_account = google_service_account.cloudrun_sa.email
+
+    scaling {
+      max_instance_count = 2
+      min_instance_count = 0
+    }
+
+    containers {
+      # Pulls the frontend image we just built
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/frontend-ui:v4.1"
+
+      resources {
+        limits = {
+          memory = "1Gi"
+          cpu    = "1"
+        }
+      }
+
+      ports {
+        container_port = 8501
+      }
+
+      # 1. Wire the Internal Networking: Point Streamlit to the secure Backend API
+      env {
+        name  = "BACKEND_API_URL"
+        value = google_cloud_run_v2_service.api_service.uri
+      }
+
+      # 2. Pass the Security Keys: Inject the API_KEY so Streamlit can bypass the 401 block
+      env {
+        name = "API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+    }
+  }
+}
+
+# =========================================================================
+# IAP SECURITY: GLOBALLY MANAGED HTTPS LOAD BALANCER
+# =========================================================================
+
+# 1. Serverless NEG to route traffic to the Frontend Cloud Run service
+resource "google_compute_region_network_endpoint_group" "frontend_neg" {
+  name                  = "frontend-serverless-neg"
+  network_endpoint_type = "SERVERLESS"
+  region                = var.gcp_region
+  cloud_run {
+    service = google_cloud_run_v2_service.frontend_service.name
+  }
+}
+
+# 2. Backend Service with IAP Enabled
+resource "google_compute_backend_service" "iap_backend" {
+  name        = "frontend-iap-backend"
+  protocol    = "HTTPS"
+  port_name   = "http"
+  timeout_sec = 30
+
+  backend {
+    group = google_compute_region_network_endpoint_group.frontend_neg.id
+  }
+
+  iap {
+    oauth2_client_id     = var.iap_client_id
+    oauth2_client_secret = var.iap_client_secret
+  }
+}
+
+# 3. URL Map to route all incoming requests to the Backend Service
+resource "google_compute_url_map" "iap_url_map" {
+  name            = "frontend-iap-url-map"
+  default_service = google_compute_backend_service.iap_backend.id
+}
+
+# 4. Managed SSL Certificate (Google Managed)
+resource "google_compute_managed_ssl_certificate" "iap_cert" {
+  name = "frontend-iap-cert"
+  managed {
+    # You can use "livebyharsh.com" or a subdomain like "rag.livebyharsh.com"
+    domains = ["livebyharsh.com"] 
+  }
+}
+
+# 5. Target HTTPS Proxy
+resource "google_compute_target_https_proxy" "iap_https_proxy" {
+  name             = "frontend-iap-https-proxy"
+  url_map          = google_compute_url_map.iap_url_map.id
+  ssl_certificates = [google_compute_managed_ssl_certificate.iap_cert.id]
+}
+
+# 6. Global Forwarding Rule (The Public IP of your Load Balancer)
+resource "google_compute_global_forwarding_rule" "iap_forwarding_rule" {
+  name       = "frontend-iap-forwarding-rule"
+  target     = google_compute_target_https_proxy.iap_https_proxy.id
+  port_range = "443"
+}
+
+# =========================================================================
+# IAP IAM BINDINGS: WHO IS ALLOWED TO LOG IN?
+# =========================================================================
+
+# This grants YOU access to bypass the IAP screen.
+resource "google_iap_web_backend_service_iam_member" "iap_access" {
+  project             = var.gcp_project_id
+  web_backend_service = google_compute_backend_service.iap_backend.name
+  role                = "roles/iap.httpsResourceAccessor"
+  # REPLACE THIS WITH YOUR GOOGLE EMAIL
+  member              = "user:harshpatel151218@gmail.com" 
+}
+
+
+# =========================================================================
+# CLOUD RUN INVOKER: ALLOW LOAD BALANCER TO FORWARD TRAFFIC TO FRONTEND
+# =========================================================================
+resource "google_cloud_run_v2_service_iam_binding" "frontend_invoker_binding" {
+  project  = var.gcp_project_id
+  location = google_cloud_run_v2_service.frontend_service.location
+  name     = google_cloud_run_v2_service.frontend_service.name
+  role     = "roles/run.invoker"
+  members  = ["allUsers"]
+}
+
+# =========================================================================
+# CLOUD RUN INVOKER: ALLOW FRONTEND TO CALL BACKEND API
+# =========================================================================
+resource "google_cloud_run_v2_service_iam_binding" "api_invoker_binding" {
+  project  = var.gcp_project_id
+  location = google_cloud_run_v2_service.api_service.location
+  name     = google_cloud_run_v2_service.api_service.name
+  role     = "roles/run.invoker"
+  members  = ["allUsers"]
 }
