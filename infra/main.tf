@@ -36,18 +36,18 @@ resource "google_secret_manager_secret_version" "db_password_version" {
   secret_data = var.db_password
 }
 
-# 2. Vault for GitHub Models Token
-resource "google_secret_manager_secret" "github_token" {
-  secret_id = "rag-github-token"
+# 2. Vault for OpenAI API Key
+resource "google_secret_manager_secret" "openai_api_key" {
+  secret_id = "rag-openai-api-key"
   replication {
     auto {}
   }
   depends_on = [google_project_service.services]
 }
 
-resource "google_secret_manager_secret_version" "github_token_version" {
-  secret      = google_secret_manager_secret.github_token.id
-  secret_data = var.github_token
+resource "google_secret_manager_secret_version" "openai_api_key_version" {
+  secret      = google_secret_manager_secret.openai_api_key.id
+  secret_data = var.openai_api_key
 }
 
 # Vault for ap-key authentication
@@ -88,9 +88,9 @@ resource "google_secret_manager_secret_iam_member" "db_pwd_access" {
   member    = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
 
-# Grants the Cloud Run identity permission to read the GitHub token vault
-resource "google_secret_manager_secret_iam_member" "gh_token_access" {
-  secret_id = google_secret_manager_secret.github_token.id
+# Grants the Cloud Run identity permission to read the OpenAI API key vault
+resource "google_secret_manager_secret_iam_member" "openai_key_access" {
+  secret_id = google_secret_manager_secret.openai_api_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
@@ -214,7 +214,7 @@ resource "google_cloud_run_v2_service" "api_service" {
   # Force Cloud Run to wait for IAM permissions before booting
   depends_on = [
     google_secret_manager_secret_iam_member.db_pwd_access,
-    google_secret_manager_secret_iam_member.gh_token_access,
+    google_secret_manager_secret_iam_member.openai_key_access,
     google_secret_manager_secret_iam_member.api_key_access
   ]
 
@@ -236,7 +236,7 @@ resource "google_cloud_run_v2_service" "api_service" {
     }
 
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v3.1.6"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/api-service:v4.1"
 
       # NEW: Grants enough RAM to hold PyTorch and SentenceTransformer in memory
       resources {
@@ -284,10 +284,10 @@ resource "google_cloud_run_v2_service" "api_service" {
         }
       }
       env {
-        name = "GITHUB_TOKEN"
+        name = "OPENAI_API_KEY"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.github_token.secret_id
+            secret  = google_secret_manager_secret.openai_api_key.secret_id
             version = "latest"
           }
         }
@@ -325,7 +325,7 @@ resource "google_cloud_run_v2_service" "frontend_service" {
 
     containers {
       # Pulls the frontend image we just built
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/frontend-ui:v4.0"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.rag_repository.repository_id}/frontend-ui:v4.1"
 
       resources {
         limits = {

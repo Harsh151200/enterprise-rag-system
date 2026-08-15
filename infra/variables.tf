@@ -15,10 +15,10 @@ variable "db_password" {
   description = "The administrative root user password for Google Cloud SQL"
 }
 
-variable "github_token" {
+variable "openai_api_key" {
+  description = "The OpenAI API Key for LLM orchestration"
   type        = string
   sensitive   = true
-  description = "The live GitHub Models authorization token used by the RAG orchestrator"
 }
 
 variable "db_user" {
