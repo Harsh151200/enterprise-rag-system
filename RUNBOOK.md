@@ -1,41 +1,72 @@
-# 📘 Enterprise Hybrid RAG Platform - Operational Runbook
+# Enterprise RAG Platform — Operational Runbook
 
-**Version:** 3.0.0  
-**Architecture:** Serverless FastAPI + Streamlit UI + GCP Cloud SQL (pgvector) + Cloud Run  
-**Core Embedding:** `Orange/orange-nomic-v1.5-1536` (Pre-cached)  
-**LLM Inference:** GitHub Models (GPT-4o-mini)
+**Repository:** `enterprise-rag-system`  
+**Runtime stack:** FastAPI API + Streamlit UI + PostgreSQL/pgvector + Cloud Run + Terraform
 
 ---
 
-## 🏗️ 1. Architecture & Environment Contract
+## 1) System architecture (current)
 
-This project enforces a strict **"Single Source of Truth" environment contract** to prevent configuration drift between Development, Staging, and Production.
+- **Backend API:** `app.py` (FastAPI)
+- **Frontend UI:** `app_ui.py` (Streamlit)
+- **Ingestion/ETL:** `components/embedder.py`, `ingestion/*`
+- **Retrieval + orchestration:** `storage/retriever.py`, `components/orchestrator.py`
+- **Database:** PostgreSQL with pgvector
+- **Infrastructure as code:** `infra/main.tf`
 
-### Environment Contract
+### LLM inference routing (current behavior)
+`components/orchestrator.py` selects credentials in this order:
+1. `OPENAI_API_KEY` (direct OpenAI API)
+2. `GITHUB_TOKEN` (GitHub Models endpoint: `https://models.github.ai/inference`)
 
-| Configuration | Value |
-|---|---|
-| **Canonical Database Name** | `enterprise_rag_db` |
-| **Canonical Database Port** | `5432` (Internal) |
-
-### Configuration Files
-
-- `.env.template` — Baseline environment schema. **Always commit this file.**
-- `.env.development` — Used for local Python/Uvicorn development. **Git ignored.**
-- `.env.staging` — Used by Docker Compose for the staging environment. **Git ignored.**
-- `.env.production` — Used **only locally** to run migrations through the Cloud SQL Proxy. **Git ignored.**
-- `infra/terraform.tfvars` — Used to inject variables and secrets into GCP. **Git ignored.**
+If neither is present, query orchestration returns a credentials error response.
 
 ---
 
-## 💻 2. Local Development Setup
+## 2) Environment contract
 
-To test code changes without impacting cloud environments, run the database locally using Docker.
+`core/config.py` controls env selection via `APP_ENV`:
+- `DEVELOPMENT` → `.env.development`
+- `STAGING` → `.env.staging`
+- `PRODUCTION` → `.env.production`
 
-The local Docker database is mapped to port `5433` to avoid conflicts with native PostgreSQL installations.
+### Key runtime variables
+- `APP_ENV`
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+- `API_KEY` (required for `/api/v1/*`)
+- `OPENAI_API_KEY` and/or `GITHUB_TOKEN`
 
-### Step 1: Spin Up the Local Database
+`SQLALCHEMY_DATABASE_URI` is auto-assembled when not explicitly provided.
 
+---
+
+## 3) API operations
+
+### Health and status
+- `GET /health` (no API key)
+- `GET /api/v1/status` (requires `X-API-Key`)
+- `GET /api/v1/logs` (requires `X-API-Key`)
+
+### Query and ingestion
+- `POST /api/v1/query` (requires `X-API-Key`)
+- `POST /api/v1/ingest` (requires `X-API-Key`, ingestion runs in background task)
+
+### Auth behavior
+- Missing/invalid API key on `/api/v1/*` returns `401`.
+
+---
+
+## 4) Local development runbook
+
+### Step 1 — Prepare environment file
+Create `.env.development` from `.env.template` and set at minimum:
+- `APP_ENV=DEVELOPMENT`
+- DB variables (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`)
+- `API_KEY`
+- one of `OPENAI_API_KEY` or `GITHUB_TOKEN`
+
+### Step 2 — Start local PostgreSQL/pgvector
+Example:
 ```bash
 docker run \
   --name local-rag-db \
@@ -45,340 +76,95 @@ docker run \
   -d pgvector/pgvector:pg16
 ```
 
-### Step 2: Configure Environment
-
-Ensure `.env.development` contains:
-
-```env
-APP_ENV=DEVELOPMENT
-DB_HOST=127.0.0.1
-DB_PORT=5433
-DB_USER=postgres
-DB_PASSWORD=your_secure_password
-DB_NAME=enterprise_rag_db
-API_KEY=dev-local-secret-key-123
+### Step 3 — Install dependencies
+```bash
+pip install -r requirements-backend.txt
+pip install -r requirements-frontend.txt
 ```
 
-### Step 3: Initialize & Run
-
-#### Initialize the Database
-
-Create the required tables and indexes:
-
+### Step 4 — Initialize schema
 ```bash
 python cli.py db-init
 ```
 
-#### Start the Backend API
-
+### Step 5 — Run backend
 ```bash
-uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+### Step 6 — Run frontend
+```bash
+#Powershell
+$env:API_KEY="<your_api_key>";python -m streamlit run app_ui.py --server.port 8501
 ```
 
 ---
 
-## 🧪 3. Staging Deployment (Integration Testing)
+## 5) Staging (Docker Compose)
 
-Staging uses **Docker Compose** to test the interaction between the UI, API, and database in an isolated container network.
-
-### Step 1: Spin Up the Stack
-
-Explicitly pass `--env-file` so Docker Compose can correctly interpolate environment variables.
-
+Use `.env.staging` and run:
 ```bash
-docker-compose \
-  --env-file .env.staging \
-  -f docker-compose.staging.yml \
-  up -d --build
+docker-compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
 ```
 
-> **Note:** The staging database is mapped to host port `5434` for external inspection.
-
-### Step 2: Initialize the Staging Schema
-
-Run the initialization script inside the running backend container:
-
+Then initialize schema in backend container:
 ```bash
 docker exec -it staging-rag-backend python cli.py db-init
 ```
 
 ---
 
-## 🚀 4. Production Deployment (GCP Serverless)
+## 6) Production deployment (Terraform + Cloud Run)
 
-Production relies entirely on **Terraform** for infrastructure provisioning and **Google Secret Manager** for runtime variable injection.
-
-Because Cloud Run requires a valid container image during initialization, deployments must strictly follow this **3-step sequence**.
-
-### Step 1: Provision Artifact Registry
-
-First, provision only the container registry to break the Infrastructure-as-Code dependency between the registry and Cloud Run.
-
+### Step 1 — Bootstrap Artifact Registry
 ```bash
 cd infra
-
-terraform apply \
-  -target=google_artifact_registry_repository.rag_repository \
-  -var-file="terraform.tfvars"
+terraform apply -target=google_artifact_registry_repository.rag_repository -var-file="terraform.tfvars"
 ```
 
-### Step 2: Build & Push the "PyTorch Diet" Image
+### Step 2 — Build and push images
+Build and push backend/frontend images to:
+- `${region}-docker.pkg.dev/${project_id}/enterprise-rag-repo/api-service:<tag>`
+- `${region}-docker.pkg.dev/${project_id}/enterprise-rag-repo/frontend-ui:<tag>`
 
-The backend image pre-caches the approximately 500 MB embedding model.
-
-The image build and push may take several minutes.
-
-#### Configure Docker Authentication
-
-```bash
-cd ..
-
-gcloud auth configure-docker us-central1-docker.pkg.dev
-```
-
-#### Build the Backend Image
-
-```bash
-docker build \
-  -f Dockerfile.backend \
-  -t us-central1-docker.pkg.dev/<GCP_PROJECT_ID>/enterprise-rag-repo/api-service:v1.0 \
-  .
-```
-
-#### Push the Image
-
-```bash
-docker push \
-  us-central1-docker.pkg.dev/<GCP_PROJECT_ID>/enterprise-rag-repo/api-service:v1.0
-```
-
-### Step 3: Full Infrastructure Apply
-
-Deploy the complete production infrastructure, including:
-
-- Cloud SQL
-- Google Secret Manager
-- VPC networking
-- Cloud Run
-- Supporting infrastructure
-
-Run:
-
+### Step 3 — Full infra apply
 ```bash
 cd infra
-
 terraform apply -var-file="terraform.tfvars"
 ```
 
 ---
 
-## 🔐 5. Production Database Management
+## 7) Security posture (as currently configured)
 
-Production databases run on **private VPC IP addresses (`10.x.x.x`)**.
+### Implemented controls
+- API routes protected by `X-API-Key` middleware.
+- Secrets injected through Google Secret Manager.
+- Cloud SQL is configured for private networking (`ipv4_enabled = false`).
+- IAP is configured on the external HTTPS load balancer backend service.
 
-You **cannot connect to the production database directly over the public internet**.
+### Important current exposure
+In `infra/main.tf`, Cloud Run invoker IAM for both frontend and backend is currently bound to:
+- `roles/run.invoker` with `members = ["allUsers"]`
 
-### Running Migrations or Seeding Production Data
+This is a **public invoker** posture at Cloud Run IAM level and does **not** represent strict private-invoker enforcement.
 
-Follow these steps when database migrations or seed operations are required.
+---
 
-### Step 1: Temporarily Enable Public Proxy Access
-
-In `infra/main.tf`, temporarily change:
-
-```terraform
-ipv4_enabled = true
-```
-
-in the Cloud SQL database configuration.
-
-Then apply the Terraform configuration:
+## 8) CLI operations
 
 ```bash
-terraform apply -var-file="terraform.tfvars"
+python cli.py db-init
+python cli.py status
+python cli.py ingest --type local --path data_sandbox/test_inputs --limit 10 --batch-size 50
+python cli.py query "What is RandomForestClassifier?"
 ```
-
-### Step 2: Open the Secure Cloud SQL Tunnel
-
-Start the Cloud SQL Auth Proxy on port `5435` to avoid local port conflicts:
-
-```bash
-cloud-sql-proxy \
-  <GCP_PROJECT_ID>:<REGION>:<INSTANCE_NAME> \
-  --port 5435
-```
-
-### Step 3: Run the CLI Tool
-
-Ensure `.env.production` is configured with:
-
-```env
-DB_PORT=5435
-```
-
-Then execute the database initialization or migration command:
-
-```powershell
-$env:APP_ENV="PRODUCTION"; python cli.py db-init
-```
-
-### Step 4: Lock Down the Database
-
-After completing the migration or seed operation:
-
-1. Revert:
-
-```terraform
-ipv4_enabled = false
-```
-
-2. Apply Terraform again:
-
-```bash
-terraform apply -var-file="terraform.tfvars"
-```
-
-This returns the database to a **private VPC-only configuration**.
 
 ---
 
-## 🛡️ 6. Security & Ingestion Guardrails
+## 9) Troubleshooting
 
-### API Security
-
-All `/api/v1/*` routes are protected by an `X-API-Key` middleware.
-
-The API key is securely injected into the Cloud Run container using **Google Secret Manager**.
-
-Requests without a valid API key are rejected with:
-
-```text
-401 Unauthorized
-```
-
-### Cloud Run Edge Invocation
-
-Cloud Run IAM is configured as **private**.
-
-Direct access to the Cloud Run service requires a valid Google Cloud Identity Bearer Token.
-
-Requests without a valid identity token are rejected at the Cloud Run edge with:
-
-```text
-403 Forbidden
-```
-
-### Ingestion Limits
-
-The `DynamicWebCrawlerConnector` implements multiple safeguards to prevent excessive resource consumption:
-
-- Uses **HTTP streaming** instead of loading entire responses into memory.
-- Enforces a strict **10 MB payload size limit**.
-- Validates the `Content-Type` / MIME type before parsing.
-- Prevents oversized or unsupported payloads from reaching the processing pipeline.
-- Reduces the risk of **Cloud Run Out-of-Memory (OOM)** kills.
-
----
-
-## 🔒 Security Model Summary
-
-The production environment follows a defense-in-depth architecture:
-
-```text
-                    Internet
-                       │
-                       ▼
-             ┌───────────────────┐
-             │   Cloud Run IAM   │
-             │ Google Identity   │
-             │      Token        │
-             └─────────┬─────────┘
-                       │
-                 403 if invalid
-                       │
-                       ▼
-             ┌───────────────────┐
-             │   FastAPI API     │
-             │   X-API-Key       │
-             │    Middleware     │
-             └─────────┬─────────┘
-                       │
-                 401 if invalid
-                       │
-                       ▼
-             ┌───────────────────┐
-             │ Protected API     │
-             │     Routes        │
-             └─────────┬─────────┘
-                       │
-                       ▼
-             ┌───────────────────┐
-             │   RAG Pipeline    │
-             │                   │
-             │ Ingestion / Query │
-             └───────────────────┘
-```
-
-### Authentication Layers
-
-| Layer | Security Control | Failure Response |
-|---|---|---|
-| **Edge** | Cloud Run IAM / Google Identity Token | `403 Forbidden` |
-| **Application** | FastAPI `X-API-Key` Middleware | `401 Unauthorized` |
-| **Secrets** | Google Secret Manager | Runtime secret injection |
-| **Database** | Private VPC / Cloud SQL | No direct public access |
-| **Ingestion** | 10 MB limit + MIME validation | Payload rejected |
-
----
-
-## 📋 Environment Port Reference
-
-| Environment | Database Host | Database Port | Purpose |
-|---|---|---:|---|
-| **Development** | `127.0.0.1` | `5433` | Local Docker PostgreSQL |
-| **Staging** | Docker network | `5432` | Container-to-container communication |
-| **Staging (Host)** | `127.0.0.1` | `5434` | External database inspection |
-| **Production** | Private VPC IP | `5432` | Cloud SQL internal access |
-| **Production Migration** | Cloud SQL Proxy | `5435` | Temporary secure migration access |
-
----
-
-## ✅ Operational Checklist
-
-### Local Development
-
-- [ ] Start the local pgvector database.
-- [ ] Configure `.env.development`.
-- [ ] Run `python cli.py db-init`.
-- [ ] Start the FastAPI application.
-- [ ] Verify API functionality.
-
-### Staging
-
-- [ ] Configure `.env.staging`.
-- [ ] Start Docker Compose.
-- [ ] Verify UI/API/database connectivity.
-- [ ] Run the staging database initialization.
-- [ ] Execute integration tests.
-
-### Production
-
-- [ ] Provision Artifact Registry.
-- [ ] Build the backend container image.
-- [ ] Push the image to Artifact Registry.
-- [ ] Run the full Terraform deployment.
-- [ ] Verify Cloud Run IAM configuration.
-- [ ] Verify Secret Manager injection.
-- [ ] Verify Cloud SQL private networking.
-- [ ] Run production smoke tests.
-
-### Production Database Operations
-
-- [ ] Temporarily enable Cloud SQL public proxy access.
-- [ ] Apply Terraform.
-- [ ] Start Cloud SQL Auth Proxy.
-- [ ] Configure `.env.production` with `DB_PORT=5435`.
-- [ ] Run the required CLI migration/seed command.
-- [ ] Disable public IP access.
-- [ ] Re-apply Terraform.
-- [ ] Verify the database is private again.
+- **401 on `/api/v1/*`:** validate `X-API-Key` header and `API_KEY` env value.
+- **DB connection errors:** confirm host/port for the active environment and run `python cli.py db-init`.
+- **LLM errors:** ensure one of `OPENAI_API_KEY` or `GITHUB_TOKEN` is set.
+- **Ingestion returns little/no data:** verify source path/URL and extension/MIME guardrails in `ingestion/pipeline.py` and `ingestion/connectors.py`.
