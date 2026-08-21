@@ -23,11 +23,13 @@ def is_crawlable_url(url: str) -> bool:
     return True
 
 class LocalDirectoryConnector(BaseConnector):
-    # (Keep your existing LocalDirectoryConnector logic exactly as it is)
     def __init__(self, directory_path: str, allowed_extensions: List[str] = None):
         self.directory_path = directory_path
+        # Aligned with all extensions registered in IngestionPipeline.parser_registry
         self.allowed_extensions = allowed_extensions or [
-            ".txt", ".md", ".html", ".htm", ".pdf", ".docx", ".xlsx", ".pptx", ".xml", ".py"
+            ".txt", ".md", ".html", ".htm", ".pdf", ".docx", 
+            ".xlsx", ".pptx", ".xml", ".py", ".json", ".ini", 
+            ".yaml", ".yml"
         ]
 
     def fetch(self, source_uri: str) -> bytes:
@@ -66,24 +68,20 @@ class DynamicWebCrawlerConnector(BaseConnector):
     def fetch(self, source_uri: str) -> bytes:
         """Executes an HTTP request with streaming to prevent OOM on massive files."""
         try:
-            # NEW GUARDRAIL 3: HTTP Streaming and Header Inspection
             with requests.get(source_uri, headers=self.headers, stream=True, timeout=10) as response:
                 if response.status_code != 200:
                     return b""
-                
-                # Check Content-Type to avoid downloading video/audio/binaries secretly lacking extensions
+
                 content_type = response.headers.get('Content-Type', '').lower()
                 if any(bad_type in content_type for bad_type in ['video/', 'audio/', 'image/', 'application/zip', 'application/x-executable']):
                     print(f"[GUARDRAIL BLOCK] Rejected forbidden MIME type ({content_type}): {source_uri}")
                     return b""
 
-                # Check Content-Length if the server provides it
                 content_length = response.headers.get('Content-Length')
                 if content_length and int(content_length) > MAX_DOWNLOAD_SIZE_BYTES:
                     print(f"[GUARDRAIL BLOCK] Server reported payload exceeds 10MB limit: {source_uri}")
                     return b""
 
-                # If the server hides Content-Length, we download in chunks and break if it gets too large
                 downloaded_bytes = b""
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
@@ -91,16 +89,16 @@ class DynamicWebCrawlerConnector(BaseConnector):
                         if len(downloaded_bytes) > MAX_DOWNLOAD_SIZE_BYTES:
                             print(f"[GUARDRAIL BLOCK] Streamed payload exceeded 10MB limit. Aborting: {source_uri}")
                             return b""
-                            
+
                 return downloaded_bytes
-                
+
         except requests.exceptions.RequestException as e:
             print(f"[ERROR] HTTP connection dropped for URL {source_uri}: {e}")
             return b""
 
     def crawl_tree(self) -> Generator[Dict[str, Any], None, None]:
         print(f"[INFO] Initializing tree traversal crawling on root node: {self.seed_url}")
-        
+
         while self.url_queue and len(self.visited_urls) < self.max_pages:
             current_url = self._clean_url(self.url_queue.pop(0))
 

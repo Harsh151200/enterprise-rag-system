@@ -72,8 +72,6 @@ def generate_rag_response(user_query: str) -> Dict[str, Any]:
     chat_model = "gpt-4o-mini"
 
     print(f"\nOrchestrator Step 2: Routing grounded payload matrix to cloud [Mode: {settings.APP_ENV}]...")
-    print(base_url)
-    print(api_key)
 
     if not api_key:
         return {
