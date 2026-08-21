@@ -35,6 +35,8 @@ Enterprise Retrieval-Augmented Generation (RAG) platform with:
 
 ## Quick start (local)
 
+Refer RUNBOOK.md for more details
+
 ### 1) Configure environment
 Create `.env.development` from `.env.template` and set:
 - `APP_ENV=DEVELOPMENT`
