@@ -3,6 +3,8 @@ from typing import Dict, Any
 from openai import OpenAI
 from core.config import settings
 from storage.retriever import hybrid_search
+import logging
+
 
 def generate_rag_response(user_query: str) -> Dict[str, Any]:
     """
@@ -100,7 +102,12 @@ def generate_rag_response(user_query: str) -> Dict[str, Any]:
         }
     
     except Exception as e:
+
+        #Configure internal logger
+        logger = logging.getLogger(__name__)
+        logger.error(f"RAG response generation failed: {e}", exc_info=True)
+
         return {
-            "answer": f"Live LLM Orchestration Error: {e}",
+            "answer": f"Live LLM Orchestration Error",
             "citations": []
         }
