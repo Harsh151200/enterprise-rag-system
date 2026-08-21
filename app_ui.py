@@ -143,12 +143,19 @@ with tab_admin:
         "Source Destination Target Path/URL", 
         value="data_sandbox/test_inputs" if input_type == "local" else ""
     )
-    input_limit = admin_col3.number_value = admin_col3.text_input("Resource Extraction Limit (Optional)", value="5")
+
+    raw_limit = admin_col3.number_input(
+        "Resource Extraction Limit (0 for unlimited)", 
+        min_value=0, 
+        max_value=10000, 
+        value=5, 
+        step=1
+    )
     
     if st.button("Initialize Production Ingestion Cycle"):
         try:
-            # Reformat optional inputs into clean parameters
-            parsed_limit = int(input_limit) if input_limit.strip().isdigit() else None
+            # Map 0 to None for unlimited extraction
+            parsed_limit = int(raw_limit) if raw_limit > 0 else None
             
             ingest_payload = {
                 "source_type": input_type,
