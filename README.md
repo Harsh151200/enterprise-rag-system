@@ -1,135 +1,196 @@
 # Enterprise RAG System
 
-Enterprise Retrieval-Augmented Generation (RAG) platform with:
-- FastAPI backend for query + ingestion APIs
-- Streamlit frontend for operator workflows
-- PostgreSQL + pgvector storage/retrieval
-- Pluggable local/web ingestion pipeline
-- Terraform-based GCP deployment (Cloud Run, Cloud SQL, Secret Manager, IAP)
+A production-shaped **Retrieval-Augmented Generation** platform: ingest mixed-format documentation, index it in PostgreSQL with pgvector, and answer questions with **hybrid search** and **source citations**—not an unconstrained chatbot.
 
-## Project layout
+The current corpus and system prompt are specialized for **scikit-learn** technical documentation (local files or a domain-locked crawl of `scikit-learn.org/stable/`). The same pipeline is format-pluggable for other internal knowledge bases.
 
-- `app.py` — FastAPI service entrypoint
-- `app_ui.py` — Streamlit UI
-- `cli.py` — operational CLI (`db-init`, `ingest`, `query`, `status`)
-- `components/` — orchestration and embedding pipeline entrypoints
-- `ingestion/` — connectors, parsers, deduplication, transformation
-- `storage/` — DB access, retrieval, analytics
-- `core/config.py` — environment-aware settings
-- `infra/` — Terraform infrastructure
-- `tests/` — unit/API tests
+**How to run, deploy, and operate this repo:** see [RUNBOOK.md](RUNBOOK.md).
 
-## Core capabilities
+---
 
-- Hybrid retrieval with citation-oriented responses
-- Multi-format ingestion (`.txt`, `.md`, `.html`, `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.xml`, `.py`, `.json`, `.ini`, `.yaml`, `.yml`)
-- Deduplication via content hashes
-- Payload guardrails for ingestion safety
-- API key protection on all `/api/v1/*` routes
+## Why it exists
 
-## Prerequisites
+Support and engineering teams cannot reliably query large, mixed-format docs. Generic LLMs invent APIs and hyperparameters. This system:
 
-- Python 3.11+
-- Docker (for local/staging DB or compose stack)
-- PostgreSQL with pgvector (or `pgvector/pgvector` Docker image)
+1. **Extracts** text from local directories or a scoped web crawl.
+2. **Chunks, embeds, and indexes** content with lineage (`source_file`, `chunk_index`, format).
+3. **Retrieves** with dense vectors *and* full-text search, fused by Reciprocal Rank Fusion (RRF) in SQL.
+4. **Generates** answers grounded in retrieved blocks, with citations and an explicit refusal when context is missing.
 
-## Quick start (local)
+Operators use a Streamlit console, a FastAPI service, or a CLI—the same engine behind all three.
 
-Refer RUNBOOK.md for more details
+---
 
-### 1) Configure environment
-Create `.env.development` from `.env.template` and set:
-- `APP_ENV=DEVELOPMENT`
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-- `API_KEY`
-- one of `OPENAI_API_KEY` or `GITHUB_TOKEN`
+## Recruiter snapshot
 
-### 2) Start local DB
-```bash
-docker run \
-  --name local-rag-db \
-  -e POSTGRES_PASSWORD=your_secure_password \
-  -e POSTGRES_DB=enterprise_rag_db \
-  -p 5433:5432 \
-  -d pgvector/pgvector:pg16
+Built as a **data / AI / platform** project spanning ETL, vector retrieval, LLM orchestration, and GCP infrastructure as code.
+
+| Theme | What shipped |
+|---|---|
+| **Data ingestion reliability** | Streaming connectors, 12+ parsers, SHA-256 + `source_file` dedup, 10 MB payload/MIME guardrails, crawl domain/path lock, pipeline SUCCESS/FAILED audit |
+| **AI retrieval accuracy** | Hybrid pgvector + English FTS, RRF in Postgres, top-4 cited chunks, temperature-0 grounded `gpt-4o-mini`, Nomic 1536-d embeddings with a dimension guard |
+| **Backend performance** | Batched embeds (32) and DB writes (250), HNSW + GIN indexes, threaded connection pool on the query path, lazy + Docker-pre-cached SentenceTransformer, CPU-only PyTorch |
+| **Data platform** | Env-profiled config, Docker Compose staging, Terraform (Cloud Run, private Cloud SQL, Secret Manager, IAP, Artifact Registry), GitHub Actions + live pgvector CI |
+
+---
+
+## Architecture
+
+```
+Streamlit console ─┐
+CLI (db-init /     ├─► FastAPI (X-API-Key on /api/v1/*)
+  ingest / query) ─┘         │
+                             ├─ POST /ingest (202) ──► background ETL
+                             │     connectors → parse/chunk → embed → Postgres
+                             └─ POST /query
+                                   embed question → hybrid RRF SQL → LLM → {answer, citations}
 ```
 
-### 3) Install dependencies
-```bash
-pip install -r requirements-backend.txt
-pip install -r requirements-frontend.txt
+| Layer | Implementation |
+|---|---|
+| API | FastAPI `app.py` — health, status, logs, query, async ingest |
+| UI | Streamlit `app_ui.py` — grounded chat + ingestion command center |
+| Ops CLI | `cli.py` — schema init, ingest, query, corpus metrics |
+| Config | `core/config.py` — pydantic-settings; `APP_ENV` → DEVELOPMENT / STAGING / PRODUCTION |
+| Ingestion | `ingestion/` + `components/embedder.py` |
+| Retrieval + LLM | `storage/retriever.py` + `components/orchestrator.py` |
+| Store | PostgreSQL + pgvector (`enterprise_documents`, `pipeline_runs`) |
+| Infra | `infra/` Terraform on GCP |
+
+There is **no separate object store or job queue**. Persistence is Postgres. Ingest from the API runs in **FastAPI `BackgroundTasks`** (in-process), not a durable worker.
+
+---
+
+## Data ingestion (reliability)
+
+**Connectors**
+
+- **Local:** recursive walk of allowed extensions (txt, md, html, pdf, docx, xlsx, pptx, xml, py, json, ini, yaml/yml), yielded as a generator so files are not all loaded at once.
+- **Web:** BFS crawler with `User-Agent: EnterpriseRAGBot/3.0`, **domain lock** (`scikit-learn.org`), **path filter** (`/stable/`), default **50-page** cap, **0.5s** delay, streaming HTTP with **10 MB** `Content-Length` / streamed-size abort and MIME blocking (video/audio/image/zip/executables).
+
+**Pipeline (`IngestionPipeline`)**
+
+- **10 MB** in-memory payload cap (Cloud Run OOM protection).
+- Forbidden binaries/archives/images dropped before parse.
+- **SHA-256** content ledger (JSON under `RAW_DATA_DIR`) plus a **DB skip** if `source_file` is already indexed (avoids re-embed).
+- Extension-routed parsers (BeautifulSoup/lxml, pypdf, python-docx, openpyxl, python-pptx; code/config via a shared XML/code parser).
+- NUL-byte sanitization so Postgres text columns stay valid.
+- LangChain `RecursiveCharacterTextSplitter` — **1000** characters, **150** overlap, with `chunk_index` lineage.
+- Per-file parser/transform failures return empty chunks instead of aborting the whole run.
+
+**Load**
+
+- Configurable embedding buffer (API default **50**; CLI `--batch-size`).
+- SentenceTransformer `embed_batch` with **batch_size=32**.
+- `psycopg2.extras.execute_values` in **250-row** sub-batches.
+- `PipelineLogger` writes RUNNING → SUCCESS/FAILED with extracted / transformed / indexed counts.
+
+---
+
+## Retrieval and generation (accuracy)
+
+**Embeddings:** `Orange/orange-nomic-v1.5-1536` via `sentence-transformers`. Model is **lazy-loaded** on first request and **pre-downloaded in the backend Docker image** to avoid Cloud Run cold-start timeouts. A startup encode **must** return **1536** dimensions or ingest/query fails closed.
+
+**Hybrid search (single SQL transaction):**
+
+1. Query embedding (cosine distance on `vector`).
+2. English `tsvector` / `plainto_tsquery` full-text search (`ts_rank_cd`).
+3. Candidate window = `top_k × 5` (default top_k **4** → **20** per strategy).
+4. **RRF** in SQL: `1/(60 + rank)` from each list, summed, ordered, limited to **4** chunks.
+
+Indexes: **HNSW** (`vector_cosine_ops`) and **GIN** on a generated `tsvector` column.
+
+**Orchestration:** retrieved blocks are formatted with format, RRF score, source, and chunk offset. The system prompt is a technical-support persona that must use provided context (and refuse if it cannot). Generation uses **gpt-4o-mini**, **temperature 0.0**. Credentials: `OPENAI_API_KEY` first, else `GITHUB_TOKEN` against GitHub Models (`https://models.github.ai/inference`). Response payload: answer + sorted unique source citations.
+
+`EMBEDDING_MODE` is `LOCAL` vs `CLOUD` by environment in config; the provider currently **always** runs the local Nomic model (staging/prod still size Cloud Run for PyTorch).
+
+---
+
+## Data model
+
+**`enterprise_documents`**
+
+- `text_content`, `source_file`, `doc_format`, `chunk_index`
+- `embedding vector(1536)`
+- `text_vector tsvector` generated from `text_content` (`english`)
+
+**`pipeline_runs`**
+
+- UUID `run_id`, pipeline name, environment, enum status (`RUNNING` / `SUCCESS` / `FAILED`)
+- record counts, timestamps, `error_message`
+
+Schema is idempotent via `python cli.py db-init` (`storage/db_seeder.py`).
+
+---
+
+## Backend performance and serving
+
+- Query/status/logs use a **threaded connection pool** (min **1**, max **20**). Ingest/audit still open short-lived connections.
+- CPU-only PyTorch wheels in `Dockerfile.backend`; backend Cloud Run **4 GiB / 4 vCPU** (embeddings in process); frontend **1 GiB / 1 vCPU**.
+- API ingest returns **202 Accepted** so the HTTP request is not tied to full ETL duration (instance recycle can still interrupt in-process tasks).
+- Streamlit timeouts: health **2s**, status/logs **3s**, ingest trigger **5s**, query **30s**.
+- Uvicorn on `${PORT:-8000}` for Cloud Run; Streamlit on `${PORT:-8501}`.
+
+---
+
+## Platform, security, and CI
+
+**Environments:** `APP_ENV` loads `.env.development` / `.env.staging` / `.env.production`. `DB_PASSWORD` is required; `SQLALCHEMY_DATABASE_URI` is assembled with URL-encoded passwords (or taken from the environment).
+
+**Auth:** `X-API-Key` on all `/api/v1/*` (401 on mismatch). `/health` is public. Secrets stay in env / Secret Manager—not in source.
+
+**GCP (Terraform `infra/`):** dedicated Cloud Run service account; Secret Manager for DB password, OpenAI key, API key; VPC + private Cloud SQL (`ipv4_enabled = false`); Artifact Registry; HTTPS load balancer + **IAP** on the frontend backend service.
+
+**Current IAM note:** Cloud Run invoker is bound to `allUsers` so the load balancer and UI can reach services. That is **not** private-invoker isolation; application auth is the API key. Details in the runbook.
+
+**CI:** GitHub Actions on `main` (and the platform feature branch) — Python 3.11, pip cache, `pgvector/pgvector:pg16` service, pytest (API auth, ingestion guardrails, config validation).
+
+**Tests of record:** oversized payload drop, forbidden extensions, hash-ledger skip, parser registry routing, API 200/202 with mocked RAG/ingest, fail-fast missing `DB_PASSWORD`.
+
+---
+
+## Stack
+
+| Area | Libraries / services |
+|---|---|
+| API | FastAPI, Uvicorn, Pydantic v2 |
+| UI | Streamlit, pandas, requests |
+| DB | PostgreSQL 16 locally / Compose; Cloud SQL POSTGRES_15 in Terraform; pgvector; psycopg2 |
+| NLP / LLM | sentence-transformers, transformers, OpenAI SDK |
+| ETL | BeautifulSoup, lxml, pypdf, python-docx, openpyxl, python-pptx, langchain_text_splitters |
+| Deploy | Docker (backend/frontend), Compose staging, Terraform (Cloud Run, SQL, Secret Manager, IAP) |
+
+Python **3.11+**.
+
+---
+
+## Repository map
+
+```
+app.py                 FastAPI service
+app_ui.py              Streamlit operator console
+cli.py                 db-init / ingest / query / status
+core/config.py         Environment-aware settings
+components/            Embedder ETL, embedding provider, RAG orchestrator
+ingestion/             Connectors, parsers, dedup, chunk transformer
+storage/               Pool, seeder, hybrid retriever, analytics, pipeline logger
+infra/                 Terraform (GCP)
+tests/                 Pytest (API, security, ingestion, config)
+Dockerfile.backend / Dockerfile.frontend
+docker-compose.staging.yml
+RUNBOOK.md             Local, staging, production, CLI, troubleshooting
 ```
 
-### 4) Initialize schema
-```bash
-python cli.py db-init
-```
+---
 
-### 5) Start backend
-```bash
-python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
-```
+## Surfaces (reference)
 
-### 6) Start frontend
-```bash
-#PowerShell
-$env:API_KEY="<your_api_key>";streamlit run app_ui.py --server.port 8501
-```
+Protected routes expect `X-API-Key`. Full commands and env vars live in [RUNBOOK.md](RUNBOOK.md).
 
-## API overview
-
-- `GET /health`
-- `GET /api/v1/status` (auth)
-- `GET /api/v1/logs` (auth)
-- `POST /api/v1/query` (auth)
-- `POST /api/v1/ingest` (auth, async background task)
-
-Auth header for protected routes:
-```http
-X-API-Key: <your_api_key>
-```
-
-## CLI usage
-
-```bash
-python cli.py db-init
-python cli.py status
-python cli.py ingest --type local --path data_sandbox/test_inputs --limit 10 --batch-size 50
-python cli.py ingest --type web --path https://example.com/docs --limit 20
-python cli.py query "What are the model constraints?"
-```
-
-## Staging with Docker Compose
-
-```bash
-docker-compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
-docker exec -it staging-rag-backend python cli.py db-init
-```
-
-## Production deployment (GCP)
-
-Infrastructure is managed in `infra/` via Terraform and provisions:
-- Cloud Run backend/frontend
-- Cloud SQL (private networking)
-- Secret Manager secrets + IAM bindings
-- Artifact Registry
-- HTTPS LB + IAP backend config
-
-Recommended flow:
-1. Provision Artifact Registry target first.
-2. Build/push backend and frontend images.
-3. Run full Terraform apply.
-
-See `/home/runner/work/enterprise-rag-system/enterprise-rag-system/RUNBOOK.md` for detailed operations and current security posture notes.
-
-## Testing
-
-```bash
-pytest -q
-```
-
-## Notes
-
-- LLM orchestration uses `OPENAI_API_KEY` when present, otherwise falls back to GitHub Models through `GITHUB_TOKEN`.
-- Ingestion and parser behavior is implemented in `ingestion/pipeline.py` and `ingestion/connectors.py`.
-- Keep secrets out of source and use environment variables / secret managers only.
+| Method | Path | Behavior |
+|---|---|---|
+| `GET` | `/health` | Liveness + `APP_ENV` (no key) |
+| `GET` | `/api/v1/status` | Chunk counts by format |
+| `GET` | `/api/v1/logs` | Recent `pipeline_runs` |
+| `POST` | `/api/v1/query` | `{ question }` → `{ answer, citations }` |
+| `POST` | `/api/v1/ingest` | `{ source_type, target_path, limit, batch_size }` → 202 background ETL |
