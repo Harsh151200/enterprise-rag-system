@@ -65,12 +65,13 @@ python cli.py db-init
 
 ### 5) Start backend
 ```bash
-uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### 6) Start frontend
 ```bash
-streamlit run app_ui.py --server.port 8501
+#PowerShell
+$env:API_KEY="<your_api_key>";streamlit run app_ui.py --server.port 8501
 ```
 
 ## API overview
