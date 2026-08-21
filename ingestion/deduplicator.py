@@ -10,7 +10,7 @@ class ContentDeduplicator:
     """
     def __init__(self):
         sandbox_dir = os.getenv("RAW_DATA_DIR", "data_sandbox/")
-        self.ledger_path = os.path.join(sandbox_dir, f"processed_hashes_{os.environ['APP_ENV']}.json")
+        self.ledger_path = os.path.join(sandbox_dir, f"processed_hashes_{os.getenv('APP_ENV', 'DEVELOPMENT')}.json")
         self.processed_hashes: Set[str] = set()
         self._load_ledger()
 
