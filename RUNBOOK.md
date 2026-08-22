@@ -186,7 +186,44 @@ First backend request may be slow while the embedding model lazy-loads (weights 
 
 ---
 
-## 7) Tests
+## 7) Retrieval evaluation and latency benchmarking
+
+`scripts/` validates the hybrid retrieval design against real data instead of assuming it, and builds a topic-scoped test corpus without a full-site crawl. Run these against staging (`docker exec -it staging-rag-backend ...`) for numbers that reflect real infra — a local Docker Postgres on your laptop is fine for iterating on the scripts themselves, not for reporting results.
+
+### Scoped ingestion
+
+The web crawler in `ingestion/connectors.py` follows every `<a href>` on every page it fetches — nav and sidebar included — and `path_filter` is a single substring (hardcoded to `/stable/` in `components/embedder.py`), not topic-aware. Seeding it at one topic page does not keep the crawl on-topic past the first hop. `scripts/ingest_topic_subset.py` sidesteps this with no code changes: it calls the ingestion pipeline once per URL with `max_resources=1`, and the crawler's `while queue and len(visited_urls) < max_pages` loop fetches exactly that page and stops before following anything it links to.
+
+```bash
+python scripts/ingest_topic_subset.py --urls-file scripts/topic_urls_supervised_learning.json
+```
+
+Each URL becomes its own `pipeline_runs` audit row — expected, one run per page, not a bug.
+
+### Retrieval relevance (Recall@K / MRR)
+
+`scripts/eval_retrieval_relevance.py` runs a labeled question set (`{"question": ..., "expected_source_contains": [...]}`) through vector-only, FTS-only, and hybrid RRF search against the same indexed corpus, and reports Recall@K and MRR per strategy.
+
+```bash
+python scripts/eval_retrieval_relevance.py --dataset scripts/eval_dataset_supervised_learning.json
+python scripts/eval_retrieval_relevance.py --dataset scripts/eval_dataset_exact_terms.json --out-csv scripts/results.csv
+```
+
+Findings from the staging corpus (29 docs / 771 chunks) are summarized in the README's "Retrieval evaluation" section: hybrid ties dense-only on plain-English questions (both hit a 100% Recall@4 ceiling — no room for a second signal to help) and beats it on exact-term/parameter-name questions (+4.8% Recall@4, +10.3% MRR, N=22). Build a bigger or differently-scoped question set the same way (`expected_source_contains` matches on a substring of `source_file`, e.g. a URL slug like `tree.html`) before trusting a number for anything beyond a smoke test.
+
+### Retrieval latency (p95)
+
+`scripts/benchmark_retrieval_latency.py` times `storage.retriever.hybrid_search()` directly — query embedding plus the RRF SQL transaction — not the full `/api/v1/query` endpoint, since the LLM generation call there (1–3s) would swamp the effect of the HNSW/GIN indexes, connection pooling, and pre-cached model weights the number is meant to isolate.
+
+```bash
+docker exec -it staging-rag-backend python scripts/benchmark_retrieval_latency.py --iterations 100 --warmup 10
+```
+
+Run it more than once before trusting the result — a cold container (embedding-model lazy-load, connection-pool ramp-up, Docker Desktop contention right after `up`) can produce an outlier several times higher than steady state. Three runs against staging landed p95 between 150ms and 180ms; a fourth immediately after container start read 443ms and did not repeat.
+
+---
+
+## 8) Tests
 
 Local (with env that can import `core.config`—`DB_PASSWORD` must be set even if tests mock the DB):
 
@@ -199,7 +236,7 @@ CI (`.github/workflows/ci.yml`): on push/PR to `main` (and push to `feature/cycl
 
 ---
 
-## 8) Production (Terraform + Cloud Run)
+## 9) Production (Terraform + Cloud Run)
 
 Images expected by `infra/main.tf` (tag `v4.1` as of this write-up):
 
@@ -235,7 +272,7 @@ Set `terraform.tfvars` for project, region, DB user/name/password, API keys, IAP
 
 ---
 
-## 9) Security posture (as configured)
+## 10) Security posture (as configured)
 
 **In place**
 
@@ -255,7 +292,7 @@ API ingest is an in-process background task. Cloud Run can recycle the instance 
 
 ---
 
-## 10) Guardrails operators will hit
+## 11) Guardrails operators will hit
 
 | Guardrail | Behavior |
 |---|---|
@@ -270,7 +307,7 @@ If ingest “does nothing,” check path existence, extension list, domain lock,
 
 ---
 
-## 11) Troubleshooting
+## 12) Troubleshooting
 
 | Symptom | What to check |
 |---|---|
@@ -288,6 +325,6 @@ If ingest “does nothing,” check path existence, extension list, domain lock,
 
 ---
 
-## 12) Useful log markers
+## 13) Useful log markers
 
 Backend / CLI print prefixes such as `[EMBEDDER]`, `[GUARDRAIL BLOCK]`, `[DEDUPLICATION SKIP]`, `[RETRIEVAL]`, `[DATABASE POOL]`, `[Audit Ledger Logged]`. Pipeline outcomes are also in `GET /api/v1/logs` and the Streamlit ledger table.
