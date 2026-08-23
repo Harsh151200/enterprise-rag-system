@@ -20,32 +20,42 @@ def hybrid_search(user_query: str, top_k: int = 4, oversample_factor: int = 5) -
     candidate_limit = top_k * oversample_factor
 
     # 2. Unified Dual-Strategy CTE RRF Query Construction
+    #    `combined` unions the two CTEs' ids first so the final join only ever
+    #    touches the (candidate_limit*2)-ish rows either strategy actually
+    #    surfaced, instead of joining vector_search/fts_search back onto the
+    #    full enterprise_documents table (which forced a Seq Scan across every
+    #    indexed row on every query, confirmed via EXPLAIN ANALYZE).
     rrf_query = """
         WITH vector_search AS (
-            SELECT id, 
+            SELECT id,
                    ROW_NUMBER() OVER (ORDER BY embedding <=> %s::vector) AS rank
             FROM enterprise_documents
             ORDER BY embedding <=> %s::vector
             LIMIT %s
         ),
         fts_search AS (
-            SELECT id, 
+            SELECT id,
                    ROW_NUMBER() OVER (ORDER BY ts_rank_cd(text_vector, plainto_tsquery('english', %s)) DESC) AS rank
             FROM enterprise_documents
             WHERE text_vector @@ plainto_tsquery('english', %s)
             ORDER BY ts_rank_cd(text_vector, plainto_tsquery('english', %s)) DESC
             LIMIT %s
+        ),
+        combined AS (
+            SELECT id FROM vector_search
+            UNION
+            SELECT id FROM fts_search
         )
-        SELECT 
-            d.text_content, 
-            d.source_file, 
-            d.doc_format, 
+        SELECT
+            d.text_content,
+            d.source_file,
+            d.doc_format,
             d.chunk_index,
             COALESCE(1.0 / (60.0 + v.rank), 0.0) + COALESCE(1.0 / (60.0 + f.rank), 0.0) AS rrf_score
-        FROM enterprise_documents d
-        LEFT JOIN vector_search v ON d.id = v.id
-        LEFT JOIN fts_search f ON d.id = f.id
-        WHERE v.id IS NOT NULL OR f.id IS NOT NULL
+        FROM combined c
+        JOIN enterprise_documents d ON d.id = c.id
+        LEFT JOIN vector_search v ON c.id = v.id
+        LEFT JOIN fts_search f ON c.id = f.id
         ORDER BY rrf_score DESC
         LIMIT %s;
     """
