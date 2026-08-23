@@ -28,7 +28,7 @@ Built as a **data / AI / platform** project spanning ETL, vector retrieval, LLM 
 | Theme | What shipped |
 |---|---|
 | **Data ingestion reliability** | Streaming connectors, 12+ parsers, SHA-256 + `source_file` dedup, 10 MB payload/MIME guardrails, crawl domain/path lock, pipeline SUCCESS/FAILED audit |
-| **AI retrieval accuracy** | Hybrid pgvector + English FTS, RRF in Postgres, top-4 cited chunks, temperature-0 grounded `gpt-4o-mini`, Nomic 1536-d embeddings with a dimension guard; validated with a Recall@K/MRR eval harness (+10.3% MRR over vector-only on exact-term queries) |
+| **AI retrieval accuracy** | Hybrid pgvector + English FTS, RRF in Postgres, top-4 cited chunks, temperature-0 grounded `gpt-4o-mini`, Nomic 1536-d embeddings with a dimension guard; validated with a Recall@K/MRR eval harness (+7.9% MRR over vector-only on exact-term queries, confirmed across two corpus sizes) |
 | **Backend performance** | Batched embeds (32) and DB writes (250), HNSW + GIN indexes, threaded connection pool on the query path, lazy + Docker-pre-cached SentenceTransformer, CPU-only PyTorch |
 | **Data platform** | Env-profiled config, Docker Compose staging, Terraform (Cloud Run, private Cloud SQL, Secret Manager, IAP, Artifact Registry), GitHub Actions + live pgvector CI |
 
@@ -108,16 +108,18 @@ Indexes: **HNSW** (`vector_cosine_ops`) and **GIN** on a generated `tsvector` co
 
 ## Retrieval evaluation
 
-Hybrid search's benefit is measured, not assumed. `evaluation_scripts/` holds a harness (`eval_retrieval_relevance.py`, `benchmark_retrieval_latency.py`) that compares vector-only, FTS-only, and hybrid RRF search on the same corpus using Recall@4 and MRR — see [RUNBOOK.md](RUNBOOK.md) for how to run it.
+Hybrid search's benefit is measured, not assumed. `evaluation_scripts/` holds a harness (`eval_retrieval_relevance.py`, `benchmark_retrieval_latency.py`, `trace_hybrid_search.py`) that compares vector-only, FTS-only, and hybrid RRF search on the same corpus using Recall@4 and MRR — see [RUNBOOK.md](RUNBOOK.md) for how to run it. Both question sets were re-run unchanged against a corpus 3× the size of the original to check the findings weren't an artifact of a small, curated test set.
 
-| Question set (N) | Vector-only | FTS-only | Hybrid RRF |
-|---|---|---|---|
-| Conceptual, plain-English (36) | Recall 100% / MRR 0.880 | Recall 30.6% / MRR 0.257 | Recall 100% / MRR 0.863 |
-| Exact-term: parameter/class names (22) | Recall 95.5% / MRR 0.886 | Recall 54.6% / MRR 0.545 | **Recall 100% / MRR 0.977** |
+| Question set (N) | Corpus | Vector-only | FTS-only | Hybrid RRF |
+|---|---|---|---|---|
+| Conceptual, plain-English (36) | 29 docs / 771 chunks | Recall 100% / MRR 0.880 | Recall 30.6% / MRR 0.257 | Recall 100% / MRR 0.863 |
+| Conceptual, plain-English (36) | 101 docs / 1,982 chunks | Recall 100% / MRR 0.870 | Recall 30.6% / MRR 0.252 | Recall 94.4% / MRR 0.831 |
+| Exact-term: parameter/class names (22) | 29 docs / 771 chunks | Recall 95.5% / MRR 0.886 | Recall 54.6% / MRR 0.545 | Recall 100% / MRR 0.977 |
+| Exact-term: parameter/class names (22) | 101 docs / 1,982 chunks | Recall 90.9% / MRR 0.864 | Recall 54.6% / MRR 0.545 | **Recall 95.5% / MRR 0.932** |
 
-Dense-only retrieval is already at a recall ceiling on conceptual questions, so hybrid can only tie there — and slightly loses on MRR by blending in a weaker FTS signal. On exact-term questions dense-only is not saturated (95.5%), and hybrid RRF measurably wins: **+4.8% Recall@4, +10.3% MRR** over the best single strategy. Traced mechanism: a question about `SelectKBest` returned nothing relevant from vector search alone; full-text search matched the exact token at rank 1, and RRF fusion pulled it into hybrid's result. Full per-question output is in `evaluation_scripts/results_conceptual.csv` and `evaluation_scripts/results_exact_terms.csv`.
+Dense-only retrieval is already at a recall ceiling on conceptual questions, so hybrid can only tie there — and slightly loses on MRR by blending in a weaker FTS signal; the effect held (and got slightly more pronounced, not less) at the larger corpus. On exact-term questions dense-only is not saturated, and hybrid RRF measurably wins at both scales — **+5.0% Recall@4, +7.9% MRR** at the larger, more credible corpus (vector-only's own edge also shrinks as more distractor pages enter the corpus). Traced mechanism: a question about `SelectKBest` returned nothing relevant from vector search alone; full-text search matched the exact token at rank 1, and RRF fusion pulled it into hybrid's result. Full per-question output is in `evaluation_scripts/results_*.csv`.
 
-**Retrieval latency:** `hybrid_search()` (query embed + the RRF SQL transaction, no LLM call) measured at **p95 ≈ 150–180ms** across three independent runs of 100 calls each (staging; HNSW + GIN indexes, pooled connections, pre-cached embedding model). A cold-container run read 443ms and did not repeat — see `evaluation_scripts/results_latency.csv`.
+**Retrieval latency:** `hybrid_search()` (query embed + the RRF SQL transaction, no LLM call) measured at **p95 ≈ 150–180ms** across three independent runs of 100 calls each (staging; HNSW + GIN indexes, pooled connections, pre-cached embedding model). A cold-container run read 443ms and did not repeat. `trace_hybrid_search.py --explain` later found the query forcing a full-table `Seq Scan`; unioning the two search CTEs' candidate ids before the final join fixed it (`Index Scan using enterprise_documents_pkey`) and roughly halved raw SQL execution time (4.83ms → 2.44ms, matched conditions) — but didn't move end-to-end p95, since the CPU embedding call dominates total latency at this corpus size, not the SQL. See `evaluation_scripts/results_latency.csv` and `latency_before_fix.csv` / `latency_after_fix.csv`.
 
 ---
 
