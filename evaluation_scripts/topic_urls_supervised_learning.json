@@ -1,0 +1,20 @@
+[
+  "https://scikit-learn.org/stable/supervised_learning.html",
+  "https://scikit-learn.org/stable/modules/linear_model.html",
+  "https://scikit-learn.org/stable/modules/lda_qda.html",
+  "https://scikit-learn.org/stable/modules/kernel_ridge.html",
+  "https://scikit-learn.org/stable/modules/svm.html",
+  "https://scikit-learn.org/stable/modules/sgd.html",
+  "https://scikit-learn.org/stable/modules/neighbors.html",
+  "https://scikit-learn.org/stable/modules/gaussian_process.html",
+  "https://scikit-learn.org/stable/modules/cross_decomposition.html",
+  "https://scikit-learn.org/stable/modules/naive_bayes.html",
+  "https://scikit-learn.org/stable/modules/tree.html",
+  "https://scikit-learn.org/stable/modules/ensemble.html",
+  "https://scikit-learn.org/stable/modules/multiclass.html",
+  "https://scikit-learn.org/stable/modules/feature_selection.html",
+  "https://scikit-learn.org/stable/modules/semi_supervised.html",
+  "https://scikit-learn.org/stable/modules/isotonic.html",
+  "https://scikit-learn.org/stable/modules/calibration.html",
+  "https://scikit-learn.org/stable/modules/neural_networks_supervised.html"
+]

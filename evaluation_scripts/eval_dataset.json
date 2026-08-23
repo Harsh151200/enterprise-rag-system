@@ -1,0 +1,66 @@
+[
+  {
+    "question": "What is a RandomForestClassifier and how does it combine multiple trees?",
+    "expected_source_contains": ["ensemble"]
+  },
+  {
+    "question": "How does gradient boosting build an ensemble of weak learners?",
+    "expected_source_contains": ["ensemble"]
+  },
+  {
+    "question": "What is the difference between bagging and boosting in ensemble methods?",
+    "expected_source_contains": ["ensemble"]
+  },
+  {
+    "question": "How does AdaBoost reweight misclassified samples between iterations?",
+    "expected_source_contains": ["ensemble"]
+  },
+  {
+    "question": "What is K-Means clustering and how does it choose cluster centers?",
+    "expected_source_contains": ["clustering"]
+  },
+  {
+    "question": "How does DBSCAN identify noise points and core samples?",
+    "expected_source_contains": ["clustering"]
+  },
+  {
+    "question": "What is hierarchical clustering and how do linkage criteria differ?",
+    "expected_source_contains": ["clustering"]
+  },
+  {
+    "question": "How is the silhouette score used to evaluate clustering quality?",
+    "expected_source_contains": ["clustering"]
+  },
+  {
+    "question": "What is the difference between Ridge and Lasso regression regularization?",
+    "expected_source_contains": ["linear_model"]
+  },
+  {
+    "question": "How does logistic regression estimate class probabilities?",
+    "expected_source_contains": ["linear_model"]
+  },
+  {
+    "question": "What does the alpha parameter control in Ridge regression?",
+    "expected_source_contains": ["linear_model"]
+  },
+  {
+    "question": "How does ElasticNet combine L1 and L2 penalties?",
+    "expected_source_contains": ["linear_model"]
+  },
+  {
+    "question": "How is a decision tree built and split at each node?",
+    "expected_source_contains": ["tree"]
+  },
+  {
+    "question": "What criteria does scikit-learn use to choose decision tree splits, like Gini impurity?",
+    "expected_source_contains": ["tree"]
+  },
+  {
+    "question": "How does pruning help prevent decision tree overfitting?",
+    "expected_source_contains": ["tree"]
+  },
+  {
+    "question": "What is the max_depth parameter's effect on a decision tree?",
+    "expected_source_contains": ["tree"]
+  }
+]

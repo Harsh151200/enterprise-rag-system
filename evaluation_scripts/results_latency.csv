@@ -1,0 +1,101 @@
+index,question,latency_ms,results_returned
+0,What is a RandomForestClassifier and how does it combine multiple trees?,109.02,4
+1,How does gradient boosting build an ensemble of weak learners?,95.91,4
+2,What is K-Means clustering and how does it choose cluster centers?,100.28,4
+3,How does DBSCAN identify noise points and core samples?,111.58,4
+4,What is the difference between Ridge and Lasso regression regularization?,127.48,4
+5,How does logistic regression estimate class probabilities?,119.98,4
+6,How is a decision tree built and split at each node?,110.44,4
+7,What criteria does scikit-learn use to choose decision tree splits?,130.26,4
+8,How does cross-validation help prevent overfitting?,126.87,4
+9,What does the alpha parameter control in Ridge regression?,117.31,4
+10,What is a RandomForestClassifier and how does it combine multiple trees?,132.19,4
+11,How does gradient boosting build an ensemble of weak learners?,124.97,4
+12,What is K-Means clustering and how does it choose cluster centers?,123.99,4
+13,How does DBSCAN identify noise points and core samples?,131.67,4
+14,What is the difference between Ridge and Lasso regression regularization?,146.53,4
+15,How does logistic regression estimate class probabilities?,165.51,4
+16,How is a decision tree built and split at each node?,132.28,4
+17,What criteria does scikit-learn use to choose decision tree splits?,146.83,4
+18,How does cross-validation help prevent overfitting?,131.21,4
+19,What does the alpha parameter control in Ridge regression?,125.84,4
+20,What is a RandomForestClassifier and how does it combine multiple trees?,151.4,4
+21,How does gradient boosting build an ensemble of weak learners?,169.45,4
+22,What is K-Means clustering and how does it choose cluster centers?,132.9,4
+23,How does DBSCAN identify noise points and core samples?,119.65,4
+24,What is the difference between Ridge and Lasso regression regularization?,125.92,4
+25,How does logistic regression estimate class probabilities?,143.37,4
+26,How is a decision tree built and split at each node?,123.06,4
+27,What criteria does scikit-learn use to choose decision tree splits?,147.16,4
+28,How does cross-validation help prevent overfitting?,130.12,4
+29,What does the alpha parameter control in Ridge regression?,147.87,4
+30,What is a RandomForestClassifier and how does it combine multiple trees?,171.58,4
+31,How does gradient boosting build an ensemble of weak learners?,149.7,4
+32,What is K-Means clustering and how does it choose cluster centers?,153.29,4
+33,How does DBSCAN identify noise points and core samples?,133.08,4
+34,What is the difference between Ridge and Lasso regression regularization?,148.01,4
+35,How does logistic regression estimate class probabilities?,135.84,4
+36,How is a decision tree built and split at each node?,139.12,4
+37,What criteria does scikit-learn use to choose decision tree splits?,128.27,4
+38,How does cross-validation help prevent overfitting?,124.06,4
+39,What does the alpha parameter control in Ridge regression?,114.17,4
+40,What is a RandomForestClassifier and how does it combine multiple trees?,130.38,4
+41,How does gradient boosting build an ensemble of weak learners?,124.21,4
+42,What is K-Means clustering and how does it choose cluster centers?,163.81,4
+43,How does DBSCAN identify noise points and core samples?,154.18,4
+44,What is the difference between Ridge and Lasso regression regularization?,117.65,4
+45,How does logistic regression estimate class probabilities?,123.26,4
+46,How is a decision tree built and split at each node?,154.27,4
+47,What criteria does scikit-learn use to choose decision tree splits?,132.45,4
+48,How does cross-validation help prevent overfitting?,105.07,4
+49,What does the alpha parameter control in Ridge regression?,114.78,4
+50,What is a RandomForestClassifier and how does it combine multiple trees?,120.63,4
+51,How does gradient boosting build an ensemble of weak learners?,125.37,4
+52,What is K-Means clustering and how does it choose cluster centers?,121.53,4
+53,How does DBSCAN identify noise points and core samples?,110.82,4
+54,What is the difference between Ridge and Lasso regression regularization?,128.54,4
+55,How does logistic regression estimate class probabilities?,117.04,4
+56,How is a decision tree built and split at each node?,105.2,4
+57,What criteria does scikit-learn use to choose decision tree splits?,122.44,4
+58,How does cross-validation help prevent overfitting?,120.22,4
+59,What does the alpha parameter control in Ridge regression?,109.39,4
+60,What is a RandomForestClassifier and how does it combine multiple trees?,142.76,4
+61,How does gradient boosting build an ensemble of weak learners?,127.9,4
+62,What is K-Means clustering and how does it choose cluster centers?,136.31,4
+63,How does DBSCAN identify noise points and core samples?,113.86,4
+64,What is the difference between Ridge and Lasso regression regularization?,136.92,4
+65,How does logistic regression estimate class probabilities?,123.97,4
+66,How is a decision tree built and split at each node?,116.63,4
+67,What criteria does scikit-learn use to choose decision tree splits?,132.68,4
+68,How does cross-validation help prevent overfitting?,121.23,4
+69,What does the alpha parameter control in Ridge regression?,108.81,4
+70,What is a RandomForestClassifier and how does it combine multiple trees?,149.58,4
+71,How does gradient boosting build an ensemble of weak learners?,110.63,4
+72,What is K-Means clustering and how does it choose cluster centers?,132.28,4
+73,How does DBSCAN identify noise points and core samples?,111.07,4
+74,What is the difference between Ridge and Lasso regression regularization?,110.34,4
+75,How does logistic regression estimate class probabilities?,117.1,4
+76,How is a decision tree built and split at each node?,162.73,4
+77,What criteria does scikit-learn use to choose decision tree splits?,233.8,4
+78,How does cross-validation help prevent overfitting?,168.73,4
+79,What does the alpha parameter control in Ridge regression?,124.54,4
+80,What is a RandomForestClassifier and how does it combine multiple trees?,169.12,4
+81,How does gradient boosting build an ensemble of weak learners?,149.26,4
+82,What is K-Means clustering and how does it choose cluster centers?,159.55,4
+83,How does DBSCAN identify noise points and core samples?,144.84,4
+84,What is the difference between Ridge and Lasso regression regularization?,145.84,4
+85,How does logistic regression estimate class probabilities?,138.24,4
+86,How is a decision tree built and split at each node?,110.67,4
+87,What criteria does scikit-learn use to choose decision tree splits?,118.67,4
+88,How does cross-validation help prevent overfitting?,110.15,4
+89,What does the alpha parameter control in Ridge regression?,106.97,4
+90,What is a RandomForestClassifier and how does it combine multiple trees?,119.52,4
+91,How does gradient boosting build an ensemble of weak learners?,105.57,4
+92,What is K-Means clustering and how does it choose cluster centers?,159.0,4
+93,How does DBSCAN identify noise points and core samples?,141.19,4
+94,What is the difference between Ridge and Lasso regression regularization?,158.02,4
+95,How does logistic regression estimate class probabilities?,146.19,4
+96,How is a decision tree built and split at each node?,196.2,4
+97,What criteria does scikit-learn use to choose decision tree splits?,226.61,4
+98,How does cross-validation help prevent overfitting?,172.07,4
+99,What does the alpha parameter control in Ridge regression?,129.49,4
