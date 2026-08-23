@@ -19,3 +19,6 @@ infra/.terraform.lock.hcl
 
 cloud-sql-proxy.exe
 *.backup
+
+# Local backlog notes — not for the repo history
+FUTURE-ENHANCEMENTS.md

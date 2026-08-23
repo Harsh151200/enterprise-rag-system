@@ -21,8 +21,8 @@ that call in-process (rather than shelling out to `cli.py` once per URL) keeps
 the embedding model loaded across calls instead of reloading it once per page.
 
 Usage:
-    python scripts/ingest_topic_subset.py --urls-file scripts/topic_urls_supervised_learning.json
-    python scripts/ingest_topic_subset.py --urls-file scripts/topic_urls_supervised_learning.json --batch-size 50 --delay 1.0
+    python evaluation_scripts/ingest_topic_subset.py --urls-file evaluation_scripts/topic_urls_supervised_learning.json
+    python evaluation_scripts/ingest_topic_subset.py --urls-file evaluation_scripts/topic_urls_supervised_learning.json --batch-size 50 --delay 1.0
 
 Each URL becomes its own pipeline_runs audit row (visible via `cli.py status` /
 GET /api/v1/logs) — that's expected, not a bug: one run per page.

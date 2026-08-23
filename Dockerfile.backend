@@ -25,7 +25,7 @@ COPY ingestion/ ./ingestion/
 COPY components/ ./components/
 COPY app.py .
 COPY cli.py .
-COPY scripts/ ./scripts/
+COPY evaluation_scripts/ ./evaluation_scripts/
 
 EXPOSE 8000
 

@@ -18,9 +18,9 @@ DB_PASSWORD etc. via .env.<APP_ENV>) and an indexed corpus — run `cli.py inges
 first if the target DB is empty.
 
 Usage:
-    python scripts/eval_retrieval_relevance.py
-    python scripts/eval_retrieval_relevance.py --top-k 4 --dataset scripts/eval_dataset.json
-    python scripts/eval_retrieval_relevance.py --out-csv scripts/eval_results.csv
+    python evaluation_scripts/eval_retrieval_relevance.py
+    python evaluation_scripts/eval_retrieval_relevance.py --top-k 4 --dataset evaluation_scripts/eval_dataset.json
+    python evaluation_scripts/eval_retrieval_relevance.py --out-csv evaluation_scripts/eval_results.csv
 """
 import argparse
 import csv
@@ -129,7 +129,7 @@ def main():
     dataset = json.loads(Path(args.dataset).read_text())
     if len(dataset) < 10:
         print(f"[WARN] Only {len(dataset)} eval questions — treat results as a smoke test, "
-              f"not a resume-worthy number. Expand scripts/eval_dataset.json for a credible sample size.",
+              f"not a resume-worthy number. Expand evaluation_scripts/eval_dataset.json for a credible sample size.",
               file=sys.stderr)
 
     print(f"[EVAL] APP_ENV={settings.APP_ENV}  DB={settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}")

@@ -13,9 +13,9 @@ Requires a real Postgres connection (same env contract as the rest of the app:
 DB_PASSWORD etc. via .env.<APP_ENV>) and an indexed corpus.
 
 Usage:
-    python scripts/benchmark_retrieval_latency.py
-    python scripts/benchmark_retrieval_latency.py --iterations 200 --warmup 10
-    python scripts/benchmark_retrieval_latency.py --out-csv scripts/latency_results.csv
+    python evaluation_scripts/benchmark_retrieval_latency.py
+    python evaluation_scripts/benchmark_retrieval_latency.py --iterations 200 --warmup 10
+    python evaluation_scripts/benchmark_retrieval_latency.py --out-csv evaluation_scripts/latency_results.csv
 """
 import argparse
 import csv

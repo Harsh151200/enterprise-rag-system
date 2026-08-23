@@ -108,16 +108,16 @@ Indexes: **HNSW** (`vector_cosine_ops`) and **GIN** on a generated `tsvector` co
 
 ## Retrieval evaluation
 
-Hybrid search's benefit is measured, not assumed. `scripts/` holds a harness (`eval_retrieval_relevance.py`, `benchmark_retrieval_latency.py`) that compares vector-only, FTS-only, and hybrid RRF search on the same corpus using Recall@4 and MRR — see [RUNBOOK.md](RUNBOOK.md) for how to run it.
+Hybrid search's benefit is measured, not assumed. `evaluation_scripts/` holds a harness (`eval_retrieval_relevance.py`, `benchmark_retrieval_latency.py`) that compares vector-only, FTS-only, and hybrid RRF search on the same corpus using Recall@4 and MRR — see [RUNBOOK.md](RUNBOOK.md) for how to run it.
 
 | Question set (N) | Vector-only | FTS-only | Hybrid RRF |
 |---|---|---|---|
 | Conceptual, plain-English (36) | Recall 100% / MRR 0.880 | Recall 30.6% / MRR 0.257 | Recall 100% / MRR 0.863 |
 | Exact-term: parameter/class names (22) | Recall 95.5% / MRR 0.886 | Recall 54.6% / MRR 0.545 | **Recall 100% / MRR 0.977** |
 
-Dense-only retrieval is already at a recall ceiling on conceptual questions, so hybrid can only tie there — and slightly loses on MRR by blending in a weaker FTS signal. On exact-term questions dense-only is not saturated (95.5%), and hybrid RRF measurably wins: **+4.8% Recall@4, +10.3% MRR** over the best single strategy. Traced mechanism: a question about `SelectKBest` returned nothing relevant from vector search alone; full-text search matched the exact token at rank 1, and RRF fusion pulled it into hybrid's result. Full per-question output is in `scripts/results_conceptual.csv` and `scripts/results_exact_terms.csv`.
+Dense-only retrieval is already at a recall ceiling on conceptual questions, so hybrid can only tie there — and slightly loses on MRR by blending in a weaker FTS signal. On exact-term questions dense-only is not saturated (95.5%), and hybrid RRF measurably wins: **+4.8% Recall@4, +10.3% MRR** over the best single strategy. Traced mechanism: a question about `SelectKBest` returned nothing relevant from vector search alone; full-text search matched the exact token at rank 1, and RRF fusion pulled it into hybrid's result. Full per-question output is in `evaluation_scripts/results_conceptual.csv` and `evaluation_scripts/results_exact_terms.csv`.
 
-**Retrieval latency:** `hybrid_search()` (query embed + the RRF SQL transaction, no LLM call) measured at **p95 ≈ 150–180ms** across three independent runs of 100 calls each (staging; HNSW + GIN indexes, pooled connections, pre-cached embedding model). A cold-container run read 443ms and did not repeat — see `scripts/results_latency.csv`.
+**Retrieval latency:** `hybrid_search()` (query embed + the RRF SQL transaction, no LLM call) measured at **p95 ≈ 150–180ms** across three independent runs of 100 calls each (staging; HNSW + GIN indexes, pooled connections, pre-cached embedding model). A cold-container run read 443ms and did not repeat — see `evaluation_scripts/results_latency.csv`.
 
 ---
 
@@ -189,7 +189,7 @@ core/config.py         Environment-aware settings
 components/            Embedder ETL, embedding provider, RAG orchestrator
 ingestion/             Connectors, parsers, dedup, chunk transformer
 storage/               Pool, seeder, hybrid retriever, analytics, pipeline logger
-scripts/               Retrieval eval (Recall@K/MRR), latency benchmark, topic-scoped ingestion
+evaluation_scripts/    Retrieval eval (Recall@K/MRR), latency benchmark, topic-scoped ingestion
 infra/                 Terraform (GCP)
 tests/                 Pytest (API, security, ingestion, config)
 Dockerfile.backend / Dockerfile.frontend
